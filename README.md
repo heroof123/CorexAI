@@ -1,4 +1,4 @@
-# 🚀 Corex IDE
+# 🚀 CorexAI IDE
 
 **AI-Powered Code Editor** - Modern, fast, and intelligent development environment built with Tauri, React, and Rust
 
@@ -8,8 +8,8 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue)
 ![React](https://img.shields.io/badge/React-19-61dafb)
 ![Rust](https://img.shields.io/badge/Rust-2021-orange)
-![Stars](https://img.shields.io/github/stars/heroof123/CorexA-?style=social)
-![Forks](https://img.shields.io/github/forks/heroof123/CorexA-?style=social)
+![Stars](https://img.shields.io/github/stars/heroof123/CorexAI?style=social)
+![Forks](https://img.shields.io/github/forks/heroof123/CorexAI?style=social)
 
 > A lightweight, privacy-focused IDE with local AI capabilities. No cloud required, your code stays on your machine.
 
@@ -61,8 +61,8 @@
 
 ```bash
 # Clone repository
-git clone https://github.com/heroof123/CorexA-.git
-cd CorexA-
+git clone https://github.com/heroof123/CorexAI.git
+cd CorexAI
 
 # Install dependencies
 npm install
@@ -75,38 +75,73 @@ cp .env.example .env
 npm run tauri:dev
 ```
 
-**Windows Users:**
+#### Platform-Specific Notes
+
+**Windows (PowerShell or CMD):**
 ```cmd
-git clone https://github.com/heroof123/CorexA-.git
-cd CorexA-
+git clone https://github.com/heroof123/CorexAI.git
+cd CorexAI
 npm install
 npm run tauri:dev
 ```
 
+**Linux/macOS:**
+```bash
+git clone https://github.com/heroof123/CorexAI.git
+cd CorexAI
+npm install
+npm run tauri:dev
+```
+
+**Note:** All npm commands work the same across all platforms.
+
 ### Build for Production
 
+#### Build Options
+
+**Default Build (Vulkan-enabled, recommended for AMD/Intel/most users)**
 ```bash
-# Standard build (CPU-only, recommended for most users)
 npm run tauri:build
+```
+Vulkan backend is enabled by default, no extra setup required. Works on most systems.
 
-# Build with CUDA support (NVIDIA GPU acceleration)
+**CPU-Only Build (No GPU acceleration)**
+```bash
+npm run tauri:build:cpu
+```
+Pure CPU inference, slowest but most compatible.
+
+**CUDA Build (NVIDIA GPU acceleration)**
+```bash
 npm run tauri:build:cuda
-
-# Build with Vulkan support (AMD/Intel GPU)
-npm run tauri:build:vulkan
-
-# Output: src-tauri/target/release/
 ```
+Requires NVIDIA GPU and CUDA toolkit installed. Fastest for NVIDIA users.
 
-**Windows Users:**
+**Output:** `src-tauri/target/release/`
+
+#### Windows Users
+
+All commands work the same in PowerShell or Command Prompt:
 ```cmd
 npm run tauri:build
 ```
-Or use the provided batch files:
+
+**Common Commands:**
 ```cmd
-build.bat    # Standard build
-clean.bat    # Clean build artifacts
-setup.bat    # Initial setup
+# Development
+npm run tauri:dev
+
+# Build
+npm run tauri:build
+
+# Clean build artifacts
+npm run clean
+
+# Type check
+npm run type-check
+
+# Run tests
+npm test
 ```
 
 ---
@@ -143,7 +178,7 @@ export MICROSOFT_CLIENT_SECRET="your_secret"
 
 3. **GGUF Direct**
    - Download GGUF models from HuggingFace
-   - Load directly in Corex (CPU or CUDA)
+   - Load directly in CorexAI (CPU, Vulkan, or CUDA)
 
 ---
 
@@ -300,10 +335,10 @@ MIT License - see [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Issues:** [GitHub Issues](https://github.com/heroof123/CorexA-/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/heroof123/CorexA-/discussions)
+- **Issues:** [GitHub Issues](https://github.com/heroof123/CorexAI/issues)
+- **Discussions:** [GitHub Discussions](https://github.com/heroof123/CorexAI/discussions)
 
-## 🌟 Why Corex?
+## 🌟 Why CorexAI?
 
 - **Privacy First** - All AI processing happens locally, your code never leaves your machine
 - **Lightweight** - Fast startup, low memory usage compared to Electron-based IDEs
@@ -343,7 +378,7 @@ This project is in active development. Core features are functional but expect s
 
 ## ⭐ Star History
 
-If you find Corex useful, please star the repository!
+If you find CorexAI useful, please star the repository!
 
 ---
 
@@ -367,5 +402,5 @@ If you find Corex useful, please star the repository!
 
 ---
 
-**Made with ❤️ by the Corex Team**
+**Made with ❤️ by the CorexAI Team**
 

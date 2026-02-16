@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2024-02-17
 
 ### Added
-- Initial release of Corex IDE
+- Initial release of CorexAI IDE
 - AI-powered code editor with local LLM support
 - Support for LM Studio, Ollama, and GGUF models
 - Monaco editor integration with syntax highlighting
@@ -56,4 +56,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[0.1.0]: https://github.com/heroof123/CorexA-/releases/tag/v0.1.0
+[0.1.0]: https://github.com/heroof123/CorexAI/releases/tag/v0.1.0
