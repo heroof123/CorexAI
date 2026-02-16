@@ -388,35 +388,31 @@ It helps the project grow and motivates us to keep improving it.
 
 ---
 
-## 📸 Screenshots
+## 📸 Screenshots & Demo
 
-### 📷 How to Add Screenshots
+### 🎥 Demo Video
 
-**Method 1: Using GitHub Issues (Easiest)**
-1. Go to [Issues](https://github.com/heroof123/CorexAI/issues/new)
-2. Drag & drop your images
-3. GitHub generates URLs automatically
-4. Copy the URLs and paste them here
-5. Close the issue without posting
+https://github.com/user-attachments/assets/5b4bf839-1704-49b4-bae4-0b9d4f5910a6
 
-**Method 2: Upload to Repository**
-1. Save screenshots in `screenshots/` folder
-2. Commit and push
-3. Reference them: `![Description](screenshots/filename.png)`
+### 📷 Screenshots
 
-### 🎬 Demo Video
+#### Main Interface
+![CorexAI Main Interface](https://github.com/user-attachments/assets/9a24992e-30b1-4015-998b-48978247eb38)
 
-**To add a video:**
-- Upload to YouTube and embed: `[![Video](thumbnail.jpg)](https://youtube.com/watch?v=...)`
-- Or upload .mp4 directly to GitHub (max 10MB)
+#### AI Chat Panel
+![AI Chat Panel](https://github.com/user-attachments/assets/c30b9f58-e302-4ab6-a1d0-0e30c5ab5b41)
 
-**Example:**
-```markdown
-![Main Interface](screenshots/main-interface.png)
-![AI Chat](screenshots/ai-chat.png)
-```
+#### Code Editor
+![Code Editor](https://github.com/user-attachments/assets/4c908837-49cd-40f0-b528-509d76b0ad38)
 
-> **Note:** Screenshots will make your project much more attractive to potential users!
+#### Features Overview
+![Features](https://github.com/user-attachments/assets/c55e346d-c281-48ca-b5d2-39e62ec3d853)
+
+#### Settings Panel
+![Settings](https://github.com/user-attachments/assets/200c79ca-8e21-4fc9-a6af-ad9971b8ef0b)
+
+#### Additional View
+![Additional View](https://github.com/user-attachments/assets/60609853-1da5-4dc3-ac16-2dbc6cbc89ec)
 
 ## 🔒 Security
 
