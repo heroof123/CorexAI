@@ -1,0 +1,924 @@
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+
+use reqwest::Client;
+use serde_json::json;
+use log::{info, error};
+use tauri::{AppHandle, Manager};
+
+use crate::gguf_manager::GgufModelManager;
+
+// --------------------
+// WINDOW CONTROLS
+// --------------------
+#[tauri::command]
+pub async fn minimize_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.minimize().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn maximize_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_maximized().map_err(|e| e.to_string())? {
+            window.unmaximize().map_err(|e| e.to_string())?;
+        } else {
+            window.maximize().map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn close_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+// --------------------
+// PROJE DOSYA TARAMA
+// --------------------
+#[tauri::command]
+pub fn scan_project(path: String) -> Result<Vec<String>, String> {
+    let mut files: Vec<String> = Vec::new();
+    scan_dir(Path::new(&path), &mut files);
+    Ok(files)
+}
+
+fn scan_dir(dir: &Path, files: &mut Vec<String>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                scan_dir(&path, files);
+            } else if let Some(ext) = path.extension() {
+                if ext == "rs" || ext == "ts" || ext == "tsx" || ext == "js" || ext == "jsx" || ext == "py" || ext == "json" {
+                    if let Some(p) = path.to_str() {
+                        files.push(p.to_string());
+                    }
+                }
+            }
+        }
+    }
+}
+#[tauri::command]
+pub async fn get_all_files(path: String) -> Result<Vec<String>, String> {
+    let ignored = vec!["node_modules", ".git", "dist", "build", "target"];
+    let mut files = Vec::new();
+    
+    fn scan_recursive(dir: &Path, files: &mut Vec<String>, ignored: &[&str]) -> std::io::Result<()> {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let path_str = path.to_str().unwrap_or("");
+                
+                // Ignore klasörlerini atla
+                if ignored.iter().any(|i| path_str.contains(i)) {
+                    continue;
+                }
+                
+                if path.is_dir() {
+                    scan_recursive(&path, files, ignored)?;
+                } else if path.is_file() {
+                    if let Some(p) = path.to_str() {
+                        files.push(p.to_string());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    
+    scan_recursive(Path::new(&path), &mut files, &ignored)
+        .map_err(|e| format!("Dosya tarama hatası: {}", e))?;
+    
+    Ok(files)
+}
+
+#[tauri::command]
+pub async fn read_file_content(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path)
+        .map_err(|e| format!("Dosya okunamadı: {}", e))
+}
+// --------------------
+// DOSYA OKUMA
+// --------------------
+#[tauri::command]
+pub fn read_file(path: String) -> Result<String, String> {
+    info!("📖 Dosya okunuyor: {}", path);
+    fs::read_to_string(&path).map_err(|e| {
+        error!("❌ Dosya okuma hatası: {}", e);
+        e.to_string()
+    })
+}
+
+// --------------------
+// DOSYA YAZMA
+// --------------------
+#[tauri::command]
+pub fn write_file(path: String, content: String) -> Result<(), String> {
+    info!("💾 Dosya yazılıyor: {}", path);
+    fs::write(&path, content).map_err(|e| {
+        error!("❌ Dosya yazma hatası: {}", e);
+        e.to_string()
+    })
+}
+
+// --------------------
+// YENİ DOSYA OLUŞTURMA
+// --------------------
+#[tauri::command]
+pub fn create_file(path: String, content: String) -> Result<(), String> {
+    info!("📝 Yeni dosya oluşturuluyor: {}", path);
+    
+    // Klasörü oluştur (eğer yoksa)
+    if let Some(parent) = Path::new(&path).parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    
+    fs::write(&path, content).map_err(|e| {
+        error!("❌ Dosya oluşturma hatası: {}", e);
+        e.to_string()
+    })
+}
+
+// --------------------
+// AI CHAT - Multi Model Support
+// --------------------
+#[tauri::command]
+pub async fn chat_with_ai(message: String) -> Result<String, String> {
+    chat_with_specific_ai(message, "main".to_string()).await
+}
+
+#[tauri::command]
+pub async fn chat_with_specific_ai(message: String, model_type: String) -> Result<String, String> {
+    let (port, model_name) = match model_type.as_str() {
+        "main" => (1234, "qwen2.5-coder-7b-instruct"),     // Ana model (7B)
+        "chat" => (1234, "qwen2.5-3b-instruct"),           // Hızlı chat (3B)
+        "llama" => (1234, "meta-llama-3.1-8b-instruct"),   // Llama 3.1 8B
+        "planner" => (1234, "qwen2.5-coder-7b-instruct"),  // Planner = Ana model
+        "coder" => (1234, "qwen2.5-coder-7b-instruct"),    // Coder = Ana model
+        "tester" => (1234, "qwen2.5-3b-instruct"),         // Tester = Hızlı model
+        _ => (1234, "qwen2.5-coder-7b-instruct"),          // Default
+    };
+
+    info!("🔵 {}:{} modeline istek gönderiliyor...", model_type, port);
+    info!("📤 Mesaj: {}", message);
+
+    let client = Client::new();
+    let endpoint = format!("http://127.0.0.1:{}/v1/chat/completions", port);
+
+    let body = json!({
+        "model": model_name,
+        "messages": [
+            {
+                "role": "user",
+                "content": message
+            }
+        ],
+        "temperature": match model_type.as_str() {
+            "planner" => 0.3,  // Daha deterministik planlar
+            "coder" => 0.1,    // Daha tutarlı kod
+            "tester" => 0.4,   // Hızlı model için biraz daha yaratıcı
+            "chat" => 0.7,     // Sohbet için yaratıcı
+            _ => 0.5,          // Ana model için dengeli
+        },
+        "max_tokens": match model_type.as_str() {
+            "planner" => 1500,
+            "coder" => 4000,
+            "tester" => 1000,
+            "chat" => 2000,
+            _ => -1,
+        },
+        "stream": false
+    });
+
+    info!("📡 Endpoint: {}", endpoint);
+
+    let res = client
+        .post(&endpoint)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| {
+            error!("❌ İstek hatası ({}:{}): {}", model_type, port, e);
+            format!("İstek hatası ({}): {}", model_type, e)
+        })?;
+
+    info!("✅ Yanıt alındı ({}), durum: {}", model_type, res.status());
+
+    let response_text = res.text().await.map_err(|e| {
+        error!("❌ Response okuma hatası ({}): {}", model_type, e);
+        e.to_string()
+    })?;
+
+    info!("📥 Raw Response ({}): {}", model_type, response_text);
+
+    let json: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
+        error!("❌ JSON parse hatası ({}): {}", model_type, e);
+        e.to_string()
+    })?;
+
+    let ai_response = json["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    info!("📥 AI Yanıtı ({}): {}", model_type, ai_response);
+
+    Ok(ai_response)
+}
+
+// --------------------
+// DYNAMIC AI CHAT - Configurable Provider
+// --------------------
+#[derive(serde::Deserialize)]
+pub struct ProviderConfig {
+    pub base_url: String,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub api_key: Option<String>,
+    pub model_name: String,
+    pub temperature: f32,
+    pub max_tokens: i32,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+#[tauri::command]
+pub async fn chat_with_dynamic_ai(
+    message: String, 
+    conversation_history: Vec<ChatMessage>,
+    provider_config: ProviderConfig
+) -> Result<String, String> {
+    info!("🔵 Dinamik AI çağrısı: {} -> {}", provider_config.model_name, provider_config.base_url);
+    info!("📤 Mesaj: {}", message);
+    info!("📚 History: {} mesaj", conversation_history.len());
+
+    let client = Client::new();
+    let endpoint = format!("{}/chat/completions", provider_config.base_url);
+
+    // Headers oluştur
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("Content-Type", "application/json".parse().unwrap());
+    
+    if let Some(api_key) = &provider_config.api_key {
+        if !api_key.is_empty() {
+            let auth_header = format!("Bearer {}", api_key);
+            headers.insert("Authorization", auth_header.parse().unwrap());
+        }
+    }
+
+    // 🔥 Conversation history kullan (eğer varsa), yoksa sadece user message
+    let messages: Vec<serde_json::Value> = if !conversation_history.is_empty() {
+        conversation_history.iter().map(|msg| {
+            json!({
+                "role": msg.role,
+                "content": msg.content
+            })
+        }).collect()
+    } else {
+        vec![json!({
+            "role": "user",
+            "content": message
+        })]
+    };
+
+    let body = json!({
+        "model": provider_config.model_name,
+        "messages": messages,
+        "temperature": provider_config.temperature,
+        "max_tokens": if provider_config.max_tokens > 0 { 
+            serde_json::Value::Number(serde_json::Number::from(provider_config.max_tokens)) 
+        } else { 
+            serde_json::Value::Null 
+        },
+        "stream": false
+    });
+
+    info!("📡 Endpoint: {}", endpoint);
+    info!("🔧 Model: {}, Temp: {}, MaxTokens: {}, Messages: {}", 
+          provider_config.model_name, 
+          provider_config.temperature, 
+          provider_config.max_tokens,
+          messages.len());
+
+    let res = client
+        .post(&endpoint)
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| {
+            error!("❌ Dinamik AI istek hatası: {}", e);
+            format!("Bağlantı hatası: {}", e)
+        })?;
+
+    info!("✅ Yanıt alındı, durum: {}", res.status());
+
+    if !res.status().is_success() {
+        let status_code = res.status();
+        let error_text = res.text().await.unwrap_or_default();
+        error!("❌ API hatası: {}", error_text);
+        return Err(format!("API hatası ({}): {}", status_code, error_text));
+    }
+
+    let response_text = res.text().await.map_err(|e| {
+        error!("❌ Response okuma hatası: {}", e);
+        e.to_string()
+    })?;
+
+    info!("📥 Raw Response: {}", response_text);
+
+    let json: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
+        error!("❌ JSON parse hatası: {}", e);
+        format!("JSON parse hatası: {}", e)
+    })?;
+
+    // OpenAI format response
+    if let Some(choices) = json["choices"].as_array() {
+        if let Some(first_choice) = choices.first() {
+            if let Some(content) = first_choice["message"]["content"].as_str() {
+                info!("📥 AI Yanıtı: {}", content);
+                return Ok(content.to_string());
+            }
+        }
+    }
+
+    // Anthropic format response
+    if let Some(content) = json["content"].as_array() {
+        if let Some(first_content) = content.first() {
+            if let Some(text) = first_content["text"].as_str() {
+                info!("📥 AI Yanıtı (Anthropic): {}", text);
+                return Ok(text.to_string());
+            }
+        }
+    }
+
+    // Fallback - try to find any text content
+    if let Some(text) = json["text"].as_str() {
+        info!("📥 AI Yanıtı (Fallback): {}", text);
+        return Ok(text.to_string());
+    }
+
+    error!("❌ AI yanıtı parse edilemedi: {}", response_text);
+    Err("AI yanıtı formatı tanınmıyor".to_string())
+}
+
+// --------------------
+// TERMINAL AÇMA
+// --------------------
+#[tauri::command]
+pub fn open_terminal(path: Option<String>) -> Result<(), String> {
+    info!("🖥️ Terminal açılıyor...");
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Windows'ta PowerShell aç
+        let mut cmd = Command::new("powershell.exe");
+        
+        if let Some(p) = path {
+            // Belirtilen dizine git
+            cmd.args(&["-NoExit", "-Command", &format!("cd '{}'", p)]);
+        } else {
+            // Mevcut dizinde aç
+            cmd.arg("-NoExit");
+        }
+        
+        cmd.spawn().map_err(|e| {
+            error!("❌ Terminal açma hatası: {}", e);
+            format!("Terminal açılamadı: {}", e)
+        })?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        // macOS'ta Terminal.app aç
+        let mut cmd = Command::new("open");
+        cmd.arg("-a").arg("Terminal");
+        
+        if let Some(p) = path {
+            cmd.arg(p);
+        }
+        
+        cmd.spawn().map_err(|e| {
+            error!("❌ Terminal açma hatası: {}", e);
+            format!("Terminal açılamadı: {}", e)
+        })?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        // Linux'ta default terminal aç
+        let terminal = std::env::var("TERMINAL")
+            .unwrap_or_else(|_| "x-terminal-emulator".to_string());
+        
+        let mut cmd = Command::new(terminal);
+        
+        if let Some(p) = path {
+            cmd.arg("--working-directory").arg(p);
+        }
+        
+        cmd.spawn().map_err(|e| {
+            error!("❌ Terminal açma hatası: {}", e);
+            format!("Terminal açılamadı: {}", e)
+        })?;
+    }
+    
+    info!("✅ Terminal açıldı");
+    Ok(())
+}
+
+// --------------------
+// TERMINAL KOMUT ÇALIŞTIRMA
+// --------------------
+#[tauri::command]
+pub fn execute_terminal_command(command: String, path: String) -> Result<serde_json::Value, String> {
+    info!("🔧 Komut çalıştırılıyor: {} (dizin: {})", command, path);
+    
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/C");
+        cmd.arg(&command);
+        
+        if !path.is_empty() {
+            cmd.current_dir(&path);
+        }
+        
+        let output = cmd.output().map_err(|e| {
+            error!("❌ Komut çalıştırma hatası: {}", e);
+            format!("Komut çalıştırılamadı: {}", e)
+        })?;
+        
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        
+        Ok(serde_json::json!({
+            "success": output.status.success(),
+            "stdout": stdout,
+            "stderr": stderr
+        }))
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::os::unix::process::CommandExt;
+        
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(&command)
+            .current_dir(if path.is_empty() { "." } else { &path })
+            .output()
+            .map_err(|e| {
+                error!("❌ Komut çalıştırma hatası: {}", e);
+                format!("Komut çalıştırılamadı: {}", e)
+            })?;
+        
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        
+        Ok(serde_json::json!({
+            "success": output.status.success(),
+            "stdout": stdout,
+            "stderr": stderr
+        }))
+    }
+}
+
+// --------------------
+// BGE EMBEDDING API
+// --------------------
+#[tauri::command]
+pub async fn create_embedding_bge(text: String) -> Result<Vec<f32>, String> {
+    info!("🧩 BGE Embedding oluşturuluyor...");
+    
+    let client = Client::new();
+    let endpoint = "http://127.0.0.1:1234/v1/embeddings";
+
+    let body = json!({
+        "model": "text-embedding-bge-base-en-v1.5",
+        "input": text,
+        "encoding_format": "float"
+    });
+
+    let res = client
+        .post(endpoint)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| {
+            error!("❌ BGE Embedding hatası: {}", e);
+            format!("BGE Embedding hatası: {}", e)
+        })?;
+
+    let response_text = res.text().await.map_err(|e| {
+        error!("❌ BGE Response okuma hatası: {}", e);
+        e.to_string()
+    })?;
+
+    let json: serde_json::Value = serde_json::from_str(&response_text).map_err(|e| {
+        error!("❌ BGE JSON parse hatası: {}", e);
+        e.to_string()
+    })?;
+
+    let embedding = json["data"][0]["embedding"]
+        .as_array()
+        .ok_or("BGE embedding array bulunamadı")?
+        .iter()
+        .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+        .collect::<Vec<f32>>();
+
+    info!("✅ BGE Embedding oluşturuldu: {} boyut", embedding.len());
+
+    Ok(embedding)
+}
+// --------------------
+// FILE MANAGEMENT
+// --------------------
+#[tauri::command]
+pub async fn create_directory(path: String) -> Result<(), String> {
+    fs::create_dir_all(&path).map_err(|e| format!("Failed to create directory: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_file(path: String) -> Result<(), String> {
+    let path = Path::new(&path);
+    
+    if path.is_dir() {
+        fs::remove_dir_all(path).map_err(|e| format!("Failed to delete directory: {}", e))?;
+    } else {
+        fs::remove_file(path).map_err(|e| format!("Failed to delete file: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn rename_file(old_path: String, new_path: String) -> Result<(), String> {
+    fs::rename(&old_path, &new_path).map_err(|e| format!("Failed to rename file: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn move_file(old_path: String, new_path: String) -> Result<(), String> {
+    fs::rename(&old_path, &new_path).map_err(|e| format!("Failed to move file: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn copy_file(source: String, destination: String) -> Result<(), String> {
+    fs::copy(&source, &destination).map_err(|e| format!("Failed to copy file: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_file_metadata(path: String) -> Result<serde_json::Value, String> {
+    let metadata = fs::metadata(&path).map_err(|e| format!("Failed to get metadata: {}", e))?;
+    
+    Ok(json!({
+        "size": metadata.len(),
+        "is_dir": metadata.is_dir(),
+        "is_file": metadata.is_file(),
+        "modified": metadata.modified()
+            .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs())
+            .unwrap_or(0),
+        "readonly": metadata.permissions().readonly()
+    }))
+}
+
+// --------------------
+// GIT COMMANDS
+// --------------------
+#[tauri::command]
+pub async fn git_status(repo_path: String) -> Result<serde_json::Value, String> {
+    let output = Command::new("git")
+        .args(&["status", "--porcelain"])
+        .current_dir(&repo_path)
+        .output()
+        .map_err(|e| format!("Failed to execute git status: {}", e))?;
+    
+    if !output.status.success() {
+        return Err(format!("Git command failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    
+    let status_output = String::from_utf8_lossy(&output.stdout);
+    let mut staged = Vec::new();
+    let mut modified = Vec::new();
+    let mut untracked = Vec::new();
+    
+    for line in status_output.lines() {
+        if line.len() >= 3 {
+            let status_code = &line[0..2];
+            let file_path = &line[3..];
+            
+            match status_code {
+                "A " | "M " | "D " => staged.push(file_path),
+                " M" | " D" => modified.push(file_path),
+                "??" => untracked.push(file_path),
+                _ => {}
+            }
+        }
+    }
+    
+    Ok(json!({
+        "staged": staged,
+        "modified": modified,
+        "untracked": untracked
+    }))
+}
+
+#[tauri::command]
+pub async fn git_add(repo_path: String, file_path: String) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(&["add", &file_path])
+        .current_dir(&repo_path)
+        .output()
+        .map_err(|e| format!("Failed to execute git add: {}", e))?;
+    
+    if !output.status.success() {
+        return Err(format!("Git add failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn git_commit(repo_path: String, message: String) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(&["commit", "-m", &message])
+        .current_dir(&repo_path)
+        .output()
+        .map_err(|e| format!("Failed to execute git commit: {}", e))?;
+    
+    if !output.status.success() {
+        return Err(format!("Git commit failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn git_push(repo_path: String) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(&["push"])
+        .current_dir(&repo_path)
+        .output()
+        .map_err(|e| format!("Failed to execute git push: {}", e))?;
+    
+    if !output.status.success() {
+        return Err(format!("Git push failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn git_pull(repo_path: String) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(&["pull"])
+        .current_dir(&repo_path)
+        .output()
+        .map_err(|e| format!("Failed to execute git pull: {}", e))?;
+    
+    if !output.status.success() {
+        return Err(format!("Git pull failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    
+    Ok(())
+}
+
+// --------------------
+// PROJECT TESTING
+// --------------------
+#[tauri::command]
+pub async fn test_project(path: String) -> Result<serde_json::Value, String> {
+    info!("🧪 Proje test ediliyor: {}", path);
+    
+    // Proje tipini belirle
+    let project_path = Path::new(&path);
+    let mut test_command = None;
+    let mut build_command = None;
+    
+    // package.json var mı? (Node.js/React/TypeScript)
+    if project_path.join("package.json").exists() {
+        // package.json'u oku ve script'leri kontrol et
+        if let Ok(package_content) = fs::read_to_string(project_path.join("package.json")) {
+            if let Ok(package_json) = serde_json::from_str::<serde_json::Value>(&package_content) {
+                if let Some(scripts) = package_json["scripts"].as_object() {
+                    // Test script'i var mı?
+                    if scripts.contains_key("test") {
+                        test_command = Some(("npm", vec!["run", "test"]));
+                    }
+                    // Build script'i var mı?
+                    if scripts.contains_key("build") {
+                        build_command = Some(("npm", vec!["run", "build"]));
+                    }
+                    // TypeScript check
+                    if scripts.contains_key("type-check") {
+                        test_command = Some(("npm", vec!["run", "type-check"]));
+                    }
+                }
+            }
+        }
+        
+        // Eğer hiç script yoksa, temel kontroller yap
+        if test_command.is_none() && build_command.is_none() {
+            // TypeScript var mı?
+            if project_path.join("tsconfig.json").exists() {
+                build_command = Some(("npx", vec!["tsc", "--noEmit"])); // Sadece type check
+            }
+        }
+    }
+    
+    // Cargo.toml var mı? (Rust)
+    else if project_path.join("Cargo.toml").exists() {
+        test_command = Some(("cargo", vec!["test"]));
+        build_command = Some(("cargo", vec!["check"]));
+    }
+    
+    // requirements.txt var mı? (Python)
+    else if project_path.join("requirements.txt").exists() || project_path.join("setup.py").exists() {
+        // Python syntax check
+        build_command = Some(("python", vec!["-m", "py_compile", "."]));
+    }
+    
+    let mut all_output = String::new();
+    let mut all_errors = String::new();
+    let mut overall_success = true;
+    
+    // Build/Type check çalıştır
+    if let Some((cmd, ref args)) = build_command {
+        info!("🔨 Build komutu çalıştırılıyor: {} {:?}", cmd, args);
+        
+        let output = Command::new(cmd)
+            .args(args)
+            .current_dir(&path)
+            .output()
+            .map_err(|e| format!("Build komutu çalıştırılamadı: {}", e))?;
+        
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        
+        all_output.push_str(&format!("=== BUILD OUTPUT ===\n{}\n", stdout));
+        if !stderr.is_empty() {
+            all_errors.push_str(&format!("=== BUILD ERRORS ===\n{}\n", stderr));
+        }
+        
+        if !output.status.success() {
+            overall_success = false;
+            info!("❌ Build başarısız");
+        } else {
+            info!("✅ Build başarılı");
+        }
+    }
+    
+    // Test çalıştır (eğer varsa)
+    if let Some((cmd, ref args)) = test_command {
+        info!("🧪 Test komutu çalıştırılıyor: {} {:?}", cmd, args);
+        
+        let output = Command::new(cmd)
+            .args(args)
+            .current_dir(&path)
+            .output()
+            .map_err(|e| format!("Test komutu çalıştırılamadı: {}", e))?;
+        
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        
+        all_output.push_str(&format!("=== TEST OUTPUT ===\n{}\n", stdout));
+        if !stderr.is_empty() {
+            all_errors.push_str(&format!("=== TEST ERRORS ===\n{}\n", stderr));
+        }
+        
+        if !output.status.success() {
+            overall_success = false;
+            info!("❌ Testler başarısız");
+        } else {
+            info!("✅ Testler başarılı");
+        }
+    }
+    
+    // Eğer hiçbir komut bulunamadıysa, basit dosya kontrolü yap
+    if build_command.is_none() && test_command.is_none() {
+        all_output.push_str("=== BASIC FILE CHECK ===\n");
+        
+        // Temel dosyaları kontrol et
+        let mut file_count = 0;
+        if let Ok(entries) = fs::read_dir(&path) {
+            for entry in entries.flatten() {
+                if entry.path().is_file() {
+                    file_count += 1;
+                }
+            }
+        }
+        
+        all_output.push_str(&format!("Proje dizininde {} dosya bulundu.\n", file_count));
+        
+        if file_count == 0 {
+            overall_success = false;
+            all_errors.push_str("Proje dizini boş görünüyor.\n");
+        }
+    }
+    
+    info!("🏁 Test tamamlandı: {}", if overall_success { "BAŞARILI" } else { "BAŞARISIZ" });
+    
+    Ok(json!({
+        "success": overall_success,
+        "stdout": all_output,
+        "stderr": all_errors
+    }))
+}
+
+// --------------------
+// SYSTEM COMMANDS
+// --------------------
+#[tauri::command]
+pub async fn execute_command(command: String, args: Vec<String>, cwd: Option<String>) -> Result<serde_json::Value, String> {
+    let mut cmd = Command::new(&command);
+    cmd.args(&args);
+    
+    if let Some(working_dir) = cwd {
+        cmd.current_dir(working_dir);
+    }
+    
+    let output = cmd.output().map_err(|e| format!("Failed to execute command: {}", e))?;
+    
+    Ok(json!({
+        "success": output.status.success(),
+        "stdout": String::from_utf8_lossy(&output.stdout),
+        "stderr": String::from_utf8_lossy(&output.stderr),
+        "exit_code": output.status.code()
+    }))
+}
+
+
+// --------------------
+// GGUF MODEL COMMANDS
+// --------------------
+// NOT: llama-cpp-2 context'i thread-safe değil, bu yüzden şimdilik basit implementasyon
+// Her çağrıda yeni model yükleme gerekiyor (ileride optimize edilebilir)
+
+#[tauri::command]
+pub async fn load_gguf_model(
+    model_path: String,
+    n_ctx: u32,
+    n_gpu_layers: u32,
+) -> Result<String, String> {
+    info!("🔵 GGUF model yükleme isteği: {}", model_path);
+    info!("🔧 Context: {}, GPU Layers: {}", n_ctx, n_gpu_layers);
+
+    // Test için model yükleme
+    let mut manager = GgufModelManager::new()?;
+    manager.load_model(&model_path, n_ctx, n_gpu_layers)?;
+
+    Ok(format!("Model başarıyla yüklendi: {}", model_path))
+}
+
+#[tauri::command]
+pub async fn chat_with_gguf_model(
+    prompt: String,
+    model_path: String,
+    n_ctx: u32,
+    n_gpu_layers: u32,
+    max_tokens: u32,
+    temperature: f32,
+) -> Result<String, String> {
+    info!("🔵 GGUF model ile chat: {}", prompt);
+
+    // Her çağrıda model yükle (şimdilik - ileride cache eklenebilir)
+    let mut manager = GgufModelManager::new()?;
+    manager.load_model(&model_path, n_ctx, n_gpu_layers)?;
+
+    // Generate
+    let response = manager.generate(&prompt, max_tokens, temperature)?;
+
+    Ok(response)
+}
+
+#[tauri::command]
+pub async fn unload_gguf_model() -> Result<String, String> {
+    info!("🔵 GGUF model unload isteği");
+    // Şimdilik her çağrıda yeni manager olduğu için unload otomatik
+    Ok("Model unloaded".to_string())
+}
+
+#[tauri::command]
+pub async fn get_gguf_model_status() -> Result<serde_json::Value, String> {
+    // Şimdilik her çağrıda yeni manager olduğu için status yok
+    Ok(json!({
+        "loaded": false,
+        "model_path": null,
+        "note": "GGUF models are loaded per-request (stateless)"
+    }))
+}

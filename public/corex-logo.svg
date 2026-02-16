@@ -1,0 +1,95 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="256" cy="256" r="256" fill="url(#bgGradient)"/>
+  
+  <!-- Outer Ring - Slow elegant rotation -->
+  <circle cx="256" cy="256" r="215" stroke="url(#ringGradient1)" stroke-width="6" fill="none" opacity="0.4"/>
+  
+  <!-- Middle Ring - Medium rotation, opposite direction -->
+  <circle cx="256" cy="256" r="174" stroke="url(#ringGradient2)" stroke-width="8" fill="none" opacity="0.5"/>
+  
+  <!-- Inner Ring - Faster rotation -->
+  <circle cx="256" cy="256" r="133" stroke="url(#ringGradient3)" stroke-width="6" fill="none" opacity="0.6"/>
+  
+  <!-- Subtle glowing dots -->
+  <circle cx="256" cy="41" r="4" fill="#00f5ff" opacity="0.7"/>
+  <circle cx="471" cy="256" r="3" fill="#6644ff" opacity="0.6"/>
+  <circle cx="256" cy="471" r="4" fill="#aa44ff" opacity="0.7"/>
+  <circle cx="41" cy="256" r="3" fill="#0099ff" opacity="0.6"/>
+  
+  <!-- Main C Letter - Much Bigger and Proper C Shape -->
+  <!-- Real C shape like (C) - not extended lines -->
+  <path d="M 384 128
+           C 410 128, 410 128, 410 128
+           L 282 128
+           C 179 128, 128 179, 128 256
+           C 128 333, 179 384, 282 384
+           L 384 384
+           C 410 384, 410 384, 410 384"
+        stroke="url(#cGradientMain)" stroke-width="48" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Inner C - Creates subtle depth -->
+  <path d="M 358 164
+           L 292 164
+           C 215 164, 179 194, 179 256
+           C 179 318, 215 348, 292 348
+           L 358 348"
+        stroke="url(#cGradientInner)" stroke-width="24" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+  
+  <!-- Soft outer glow -->
+  <path d="M 384 128
+           L 282 128
+           C 179 128, 128 179, 128 256
+           C 128 333, 179 384, 282 384
+           L 384 384"
+        stroke="#00f5ff" stroke-width="72" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.2" filter="blur(8px)"/>
+  
+  <!-- Inner soft glow -->
+  <path d="M 384 128
+           L 282 128
+           C 179 128, 128 179, 128 256
+           C 128 333, 179 384, 282 384
+           L 384 384"
+        stroke="#aa44ff" stroke-width="32" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.3" filter="blur(4px)"/>
+  
+  <!-- Gradients -->
+  <defs>
+    <radialGradient id="bgGradient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="50%" stop-color="#16213e"/>
+      <stop offset="100%" stop-color="#0f0f23"/>
+    </radialGradient>
+    
+    <!-- Ring Gradients - Subtle and elegant -->
+    <linearGradient id="ringGradient1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f5ff" stop-opacity="0.6"/>
+      <stop offset="50%" stop-color="#6644ff" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#aa44ff" stop-opacity="0.6"/>
+    </linearGradient>
+    
+    <linearGradient id="ringGradient2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#aa44ff" stop-opacity="0.5"/>
+      <stop offset="50%" stop-color="#0099ff" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#00f5ff" stop-opacity="0.5"/>
+    </linearGradient>
+    
+    <linearGradient id="ringGradient3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0099ff" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#6644ff" stop-opacity="0.8"/>
+    </linearGradient>
+    
+    <!-- C Letter Gradients - Premium blue/purple tones -->
+    <linearGradient id="cGradientMain" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f5ff"/>
+      <stop offset="30%" stop-color="#0099ff"/>
+      <stop offset="70%" stop-color="#6644ff"/>
+      <stop offset="100%" stop-color="#aa44ff"/>
+    </linearGradient>
+    
+    <linearGradient id="cGradientInner" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="50%" stop-color="#00f5ff" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+</svg>

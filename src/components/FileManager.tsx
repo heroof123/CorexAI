@@ -1,0 +1,488 @@
+import { useState, useRef, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+
+interface FileManagerProps {
+  projectPath: string;
+  files: string[];
+  selectedFile: string;
+  onFileSelect: (filePath: string) => void;
+  onFileCreate: (filePath: string) => void;
+  onFileDelete: (filePath: string) => void;
+  onFileRename: (oldPath: string, newPath: string) => void;
+  onRefresh: () => void;
+}
+
+interface FileNode {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  children?: FileNode[];
+  isExpanded?: boolean;
+}
+
+export default function FileManager({
+  projectPath,
+  files,
+  selectedFile,
+  onFileSelect,
+  onFileCreate,
+  onFileDelete,
+  onFileRename,
+  onRefresh
+}: FileManagerProps) {
+  const [fileTree, setFileTree] = useState<FileNode[]>([]);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    node: FileNode;
+  } | null>(null);
+  const [draggedFile, setDraggedFile] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredFiles, setFilteredFiles] = useState<string[]>([]);
+  const [showCreateDialog, setShowCreateDialog] = useState<{
+    type: 'file' | 'folder';
+    parentPath: string;
+  } | null>(null);
+  const [renameFile, setRenameFile] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Build file tree from flat file list
+  useEffect(() => {
+    if (!files.length) return;
+
+    const buildTree = (paths: string[]): FileNode[] => {
+      const tree: FileNode[] = [];
+      const pathMap = new Map<string, FileNode>();
+
+      // Sort paths to ensure directories come before their contents
+      const sortedPaths = [...paths].sort();
+
+      for (const path of sortedPaths) {
+        const relativePath = path.replace(projectPath, '').replace(/^[\\/]/, '');
+        const parts = relativePath.split(/[\\/]/);
+        let currentPath = projectPath;
+
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          const fullPath = currentPath + '/' + part;
+          const isDirectory = i < parts.length - 1 || path.endsWith('/');
+
+          if (!pathMap.has(fullPath)) {
+            const node: FileNode = {
+              name: part,
+              path: fullPath,
+              isDirectory,
+              children: isDirectory ? [] : undefined,
+              isExpanded: false
+            };
+
+            pathMap.set(fullPath, node);
+
+            if (i === 0) {
+              tree.push(node);
+            } else {
+              const parentPath = currentPath;
+              const parent = pathMap.get(parentPath);
+              if (parent && parent.children) {
+                parent.children.push(node);
+              }
+            }
+          }
+
+          currentPath = fullPath;
+        }
+      }
+
+      return tree;
+    };
+
+    setFileTree(buildTree(files));
+  }, [files, projectPath]);
+
+  // Filter files based on search term
+  useEffect(() => {
+    if (!searchTerm) {
+      setFilteredFiles(files);
+    } else {
+      const filtered = files.filter(file =>
+        file.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      setFilteredFiles(filtered);
+    }
+  }, [files, searchTerm]);
+
+  const handleContextMenu = (e: React.MouseEvent, node: FileNode) => {
+    e.preventDefault();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      node
+    });
+  };
+
+  const handleCreateFile = async (name: string, type: 'file' | 'folder') => {
+    if (!showCreateDialog) return;
+
+    const fullPath = `${showCreateDialog.parentPath}/${name}`;
+    
+    try {
+      if (type === 'folder') {
+        await invoke('create_directory', { path: fullPath });
+      } else {
+        await invoke('write_file', { path: fullPath, content: '' });
+      }
+      
+      onFileCreate(fullPath);
+      setShowCreateDialog(null);
+      onRefresh();
+    } catch (error) {
+      alert(`Oluşturma hatası: ${error}`);
+    }
+  };
+
+  const handleDeleteFile = async (filePath: string) => {
+    if (!confirm(`"${filePath.split('/').pop()}" dosyasını silmek istediğinizden emin misiniz?`)) {
+      return;
+    }
+
+    try {
+      await invoke('delete_file', { path: filePath });
+      onFileDelete(filePath);
+      onRefresh();
+    } catch (error) {
+      alert(`Silme hatası: ${error}`);
+    }
+  };
+
+  const handleRenameFile = async (oldPath: string, newName: string) => {
+    const directory = oldPath.substring(0, oldPath.lastIndexOf('/'));
+    const newPath = `${directory}/${newName}`;
+
+    try {
+      await invoke('rename_file', { oldPath, newPath });
+      onFileRename(oldPath, newPath);
+      setRenameFile(null);
+      onRefresh();
+    } catch (error) {
+      alert(`Yeniden adlandırma hatası: ${error}`);
+    }
+  };
+
+  const handleDragStart = (e: React.DragEvent, filePath: string) => {
+    setDraggedFile(filePath);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetPath: string) => {
+    e.preventDefault();
+    
+    if (!draggedFile) return;
+
+    const fileName = draggedFile.split('/').pop();
+    const newPath = `${targetPath}/${fileName}`;
+
+    try {
+      await invoke('move_file', { oldPath: draggedFile, newPath });
+      onFileRename(draggedFile, newPath);
+      setDraggedFile(null);
+      onRefresh();
+    } catch (error) {
+      alert(`Taşıma hatası: ${error}`);
+    }
+  };
+
+  const toggleExpanded = (path: string) => {
+    setFileTree(prev => {
+      const updateNode = (nodes: FileNode[]): FileNode[] => {
+        return nodes.map(node => {
+          if (node.path === path) {
+            return { ...node, isExpanded: !node.isExpanded };
+          }
+          if (node.children) {
+            return { ...node, children: updateNode(node.children) };
+          }
+          return node;
+        });
+      };
+      return updateNode(prev);
+    });
+  };
+
+  const renderFileNode = (node: FileNode, depth = 0) => {
+    const isSelected = selectedFile === node.path;
+    const isRenamed = renameFile === node.path;
+
+    return (
+      <div key={node.path}>
+        <div
+          className={`flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-[var(--color-hover)] ${
+            isSelected ? 'bg-[var(--color-primary)] text-white' : ''
+          }`}
+          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          onClick={() => !node.isDirectory && onFileSelect(node.path)}
+          onContextMenu={(e) => handleContextMenu(e, node)}
+          onDragStart={(e) => handleDragStart(e, node.path)}
+          onDragOver={handleDragOver}
+          onDrop={(e) => node.isDirectory && handleDrop(e, node.path)}
+          draggable={!node.isDirectory}
+        >
+          {node.isDirectory && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleExpanded(node.path);
+              }}
+              className="w-4 h-4 flex items-center justify-center"
+            >
+              {node.isExpanded ? '📂' : '📁'}
+            </button>
+          )}
+          
+          {!node.isDirectory && (
+            <span className="w-4 h-4 flex items-center justify-center text-xs">
+              {node.name.endsWith('.ts') || node.name.endsWith('.tsx') ? '🟦' :
+               node.name.endsWith('.js') || node.name.endsWith('.jsx') ? '🟨' :
+               node.name.endsWith('.rs') ? '🦀' :
+               node.name.endsWith('.py') ? '🐍' :
+               node.name.endsWith('.json') ? '📋' :
+               node.name.endsWith('.md') ? '📝' :
+               node.name.endsWith('.css') ? '🎨' :
+               node.name.endsWith('.html') ? '🌐' : '📄'}
+            </span>
+          )}
+
+          {isRenamed ? (
+            <input
+              type="text"
+              defaultValue={node.name}
+              className="flex-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-2 py-1 text-xs"
+              onBlur={(e) => {
+                if (e.target.value !== node.name) {
+                  handleRenameFile(node.path, e.target.value);
+                } else {
+                  setRenameFile(null);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.currentTarget.blur();
+                } else if (e.key === 'Escape') {
+                  setRenameFile(null);
+                }
+              }}
+              autoFocus
+            />
+          ) : (
+            <>
+              <span className="flex-1 text-xs truncate">{node.name}</span>
+              {!node.isDirectory && isSelected && (
+                <span className="text-xs text-[var(--color-primary)] ml-1">▶</span>
+              )}
+            </>
+          )}
+        </div>
+
+        {node.isDirectory && node.isExpanded && node.children && (
+          <div>
+            {node.children.map(child => renderFileNode(child, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="h-full flex flex-col bg-[var(--color-surface)]">
+      {/* Header */}
+      <div className="p-3 border-b border-[var(--color-border)]">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-[var(--color-text)]">
+            📁 Dosya Yöneticisi
+          </h3>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowCreateDialog({ type: 'file', parentPath: projectPath })}
+              className="w-6 h-6 flex items-center justify-center hover:bg-[var(--color-hover)] rounded text-xs"
+              title="Yeni Dosya"
+            >
+              📄
+            </button>
+            <button
+              onClick={() => setShowCreateDialog({ type: 'folder', parentPath: projectPath })}
+              className="w-6 h-6 flex items-center justify-center hover:bg-[var(--color-hover)] rounded text-xs"
+              title="Yeni Klasör"
+            >
+              📁
+            </button>
+            <button
+              onClick={onRefresh}
+              className="w-6 h-6 flex items-center justify-center hover:bg-[var(--color-hover)] rounded text-xs"
+              title="Yenile"
+            >
+              🔄
+            </button>
+          </div>
+        </div>
+
+        {/* Search */}
+        <input
+          type="text"
+          placeholder="Dosya ara..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full px-2 py-1 text-xs bg-[var(--color-background)] border border-[var(--color-border)] rounded focus:border-[var(--color-primary)] outline-none"
+        />
+      </div>
+
+      {/* File Tree */}
+      <div className="flex-1 overflow-y-auto">
+        {searchTerm ? (
+          // Search results
+          <div className="p-2">
+            <div className="text-xs text-[var(--color-textSecondary)] mb-2">
+              {filteredFiles.length} sonuç bulundu
+            </div>
+            {filteredFiles.map(file => (
+              <div
+                key={file}
+                className={`flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-[var(--color-hover)] rounded ${
+                  selectedFile === file ? 'bg-[var(--color-primary)] text-white' : ''
+                }`}
+                onClick={() => onFileSelect(file)}
+              >
+                <span className="text-xs">📄</span>
+                <span className="text-xs truncate">{file.replace(projectPath, '').replace(/^[\\/]/, '')}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          // File tree
+          <div>
+            {fileTree.map(node => renderFileNode(node))}
+          </div>
+        )}
+      </div>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setContextMenu(null)}
+          />
+          <div
+            className="fixed bg-[var(--color-surface)] border border-[var(--color-border)] rounded shadow-lg z-50 py-1"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            {!contextMenu.node.isDirectory && (
+              <button
+                onClick={() => {
+                  onFileSelect(contextMenu.node.path);
+                  setContextMenu(null);
+                }}
+                className="block w-full text-left px-3 py-1 text-xs hover:bg-[var(--color-hover)]"
+              >
+                📂 Aç
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setRenameFile(contextMenu.node.path);
+                setContextMenu(null);
+              }}
+              className="block w-full text-left px-3 py-1 text-xs hover:bg-[var(--color-hover)]"
+            >
+              ✏️ Yeniden Adlandır
+            </button>
+            <button
+              onClick={() => {
+                handleDeleteFile(contextMenu.node.path);
+                setContextMenu(null);
+              }}
+              className="block w-full text-left px-3 py-1 text-xs hover:bg-[var(--color-hover)] text-[var(--color-error)]"
+            >
+              🗑️ Sil
+            </button>
+            <div className="border-t border-[var(--color-border)] my-1" />
+            <button
+              onClick={() => {
+                setShowCreateDialog({ 
+                  type: 'file', 
+                  parentPath: contextMenu.node.isDirectory ? contextMenu.node.path : contextMenu.node.path.substring(0, contextMenu.node.path.lastIndexOf('/'))
+                });
+                setContextMenu(null);
+              }}
+              className="block w-full text-left px-3 py-1 text-xs hover:bg-[var(--color-hover)]"
+            >
+              📄 Yeni Dosya
+            </button>
+            <button
+              onClick={() => {
+                setShowCreateDialog({ 
+                  type: 'folder', 
+                  parentPath: contextMenu.node.isDirectory ? contextMenu.node.path : contextMenu.node.path.substring(0, contextMenu.node.path.lastIndexOf('/'))
+                });
+                setContextMenu(null);
+              }}
+              className="block w-full text-left px-3 py-1 text-xs hover:bg-[var(--color-hover)]"
+            >
+              📁 Yeni Klasör
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Create Dialog */}
+      {showCreateDialog && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-50" />
+          <div className="fixed inset-0 flex items-center justify-center z-50">
+            <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-4 w-80">
+              <h3 className="text-sm font-semibold mb-3">
+                {showCreateDialog.type === 'file' ? '📄 Yeni Dosya' : '📁 Yeni Klasör'}
+              </h3>
+              <input
+                ref={fileInputRef}
+                type="text"
+                placeholder={showCreateDialog.type === 'file' ? 'dosya.txt' : 'klasor-adi'}
+                className="w-full px-3 py-2 bg-[var(--color-background)] border border-[var(--color-border)] rounded focus:border-[var(--color-primary)] outline-none text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleCreateFile(e.currentTarget.value, showCreateDialog.type);
+                  } else if (e.key === 'Escape') {
+                    setShowCreateDialog(null);
+                  }
+                }}
+                autoFocus
+              />
+              <div className="flex justify-end gap-2 mt-3">
+                <button
+                  onClick={() => setShowCreateDialog(null)}
+                  className="px-3 py-1 text-xs bg-[var(--color-surface)] border border-[var(--color-border)] rounded hover:bg-[var(--color-hover)]"
+                >
+                  İptal
+                </button>
+                <button
+                  onClick={() => {
+                    const input = fileInputRef.current;
+                    if (input?.value) {
+                      handleCreateFile(input.value, showCreateDialog.type);
+                    }
+                  }}
+                  className="px-3 py-1 text-xs bg-[var(--color-primary)] text-white rounded hover:opacity-80"
+                >
+                  Oluştur
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

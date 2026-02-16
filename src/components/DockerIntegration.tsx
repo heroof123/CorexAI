@@ -1,0 +1,444 @@
+import { useState, useEffect } from 'react';
+import { useLanguage } from '../contexts/LanguageContext';
+
+interface Container {
+  id: string;
+  name: string;
+  image: string;
+  status: 'running' | 'stopped' | 'paused';
+  ports: string[];
+  created: number;
+  size: string;
+}
+
+interface Image {
+  id: string;
+  repository: string;
+  tag: string;
+  size: string;
+  created: number;
+}
+
+interface DockerCompose {
+  id: string;
+  name: string;
+  services: string[];
+  status: 'running' | 'stopped';
+  file: string;
+}
+
+export default function DockerIntegration() {
+  const { t } = useLanguage();
+  const [containers, setContainers] = useState<Container[]>([]);
+  const [images, setImages] = useState<Image[]>([]);
+  const [composeProjects, setComposeProjects] = useState<DockerCompose[]>([]);
+  const [activeTab, setActiveTab] = useState<'containers' | 'images' | 'compose'>('containers');
+  const [isDockerRunning] = useState(true);
+  const [logs, setLogs] = useState<Record<string, string[]>>({});
+  const [selectedContainer, setSelectedContainer] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadDockerData();
+  }, []);
+
+  const loadDockerData = () => {
+    // Mock Docker data
+    setContainers([
+      {
+        id: 'cont_1',
+        name: 'web-server',
+        image: 'nginx:latest',
+        status: 'running',
+        ports: ['80:8080', '443:8443'],
+        created: Date.now() - 86400000,
+        size: '142MB'
+      },
+      {
+        id: 'cont_2',
+        name: 'database',
+        image: 'postgres:13',
+        status: 'running',
+        ports: ['5432:5432'],
+        created: Date.now() - 172800000,
+        size: '314MB'
+      },
+      {
+        id: 'cont_3',
+        name: 'redis-cache',
+        image: 'redis:alpine',
+        status: 'stopped',
+        ports: ['6379:6379'],
+        created: Date.now() - 259200000,
+        size: '32MB'
+      }
+    ]);
+
+    setImages([
+      {
+        id: 'img_1',
+        repository: 'nginx',
+        tag: 'latest',
+        size: '142MB',
+        created: Date.now() - 86400000
+      },
+      {
+        id: 'img_2',
+        repository: 'postgres',
+        tag: '13',
+        size: '314MB',
+        created: Date.now() - 172800000
+      },
+      {
+        id: 'img_3',
+        repository: 'redis',
+        tag: 'alpine',
+        size: '32MB',
+        created: Date.now() - 259200000
+      },
+      {
+        id: 'img_4',
+        repository: 'node',
+        tag: '18-alpine',
+        size: '118MB',
+        created: Date.now() - 345600000
+      }
+    ]);
+
+    setComposeProjects([
+      {
+        id: 'comp_1',
+        name: 'web-app',
+        services: ['web', 'db', 'redis'],
+        status: 'running',
+        file: 'docker-compose.yml'
+      },
+      {
+        id: 'comp_2',
+        name: 'microservices',
+        services: ['api', 'auth', 'gateway', 'db'],
+        status: 'stopped',
+        file: 'docker-compose.prod.yml'
+      }
+    ]);
+
+    // Mock logs
+    setLogs({
+      'cont_1': [
+        '2024-01-20 10:30:15 [info] Server started on port 80',
+        '2024-01-20 10:30:16 [info] Ready to accept connections',
+        '2024-01-20 10:31:22 [info] GET / 200 - 15ms',
+        '2024-01-20 10:32:45 [info] GET /api/health 200 - 3ms'
+      ],
+      'cont_2': [
+        '2024-01-20 10:29:30 [info] PostgreSQL Database directory appears to contain a database',
+        '2024-01-20 10:29:31 [info] Starting PostgreSQL 13.8',
+        '2024-01-20 10:29:32 [info] Database system is ready to accept connections'
+      ]
+    });
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'running': return 'text-green-500';
+      case 'stopped': return 'text-red-500';
+      case 'paused': return 'text-yellow-500';
+      default: return 'text-gray-500';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'running': return '🟢';
+      case 'stopped': return '🔴';
+      case 'paused': return '🟡';
+      default: return '⚪';
+    }
+  };
+
+  const startContainer = (id: string) => {
+    setContainers(prev => prev.map(c => 
+      c.id === id ? { ...c, status: 'running' } : c
+    ));
+  };
+
+  const stopContainer = (id: string) => {
+    setContainers(prev => prev.map(c => 
+      c.id === id ? { ...c, status: 'stopped' } : c
+    ));
+  };
+
+  const restartContainer = (id: string) => {
+    setContainers(prev => prev.map(c => 
+      c.id === id ? { ...c, status: 'running' } : c
+    ));
+  };
+
+  const removeContainer = (id: string) => {
+    setContainers(prev => prev.filter(c => c.id !== id));
+  };
+
+  const removeImage = (id: string) => {
+    setImages(prev => prev.filter(i => i.id !== id));
+  };
+
+  const pullImage = (repository: string, tag: string = 'latest') => {
+    const newImage: Image = {
+      id: `img_${Date.now()}`,
+      repository,
+      tag,
+      size: '0MB',
+      created: Date.now()
+    };
+    setImages(prev => [...prev, newImage]);
+  };
+
+  const ContainerActions = ({ container }: { container: Container }) => (
+    <div className="flex gap-1">
+      {container.status === 'stopped' ? (
+        <button
+          onClick={() => startContainer(container.id)}
+          className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:opacity-80"
+          title="Start"
+        >
+          ▶️
+        </button>
+      ) : (
+        <button
+          onClick={() => stopContainer(container.id)}
+          className="px-2 py-1 bg-red-600 text-white rounded text-xs hover:opacity-80"
+          title="Stop"
+        >
+          ⏹️
+        </button>
+      )}
+      <button
+        onClick={() => restartContainer(container.id)}
+        className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:opacity-80"
+        title="Restart"
+      >
+        🔄
+      </button>
+      <button
+        onClick={() => setSelectedContainer(container.id)}
+        className="px-2 py-1 bg-gray-600 text-white rounded text-xs hover:opacity-80"
+        title="Logs"
+      >
+        📋
+      </button>
+      <button
+        onClick={() => removeContainer(container.id)}
+        className="px-2 py-1 bg-red-600 text-white rounded text-xs hover:opacity-80"
+        title="Remove"
+      >
+        🗑️
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="h-full flex flex-col bg-[var(--color-surface)]">
+      {/* Header */}
+      <div className="px-3 py-2 border-b border-[var(--color-border)]">
+        <h2 className="text-lg font-semibold text-[var(--color-text)] mb-2">🐳 {t('activity.docker')}</h2>
+        
+        {/* Docker Status */}
+        <div className="flex items-center gap-2 mb-3">
+          <span className={`w-2 h-2 rounded-full ${isDockerRunning ? 'bg-green-500' : 'bg-red-500'}`}></span>
+          <span className="text-sm">
+            Docker {isDockerRunning ? 'Running' : 'Not Running'}
+          </span>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1">
+          {(['containers', 'images', 'compose'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-3 py-1 text-sm rounded transition-colors capitalize ${
+                activeTab === tab
+                  ? 'bg-[var(--color-primary)] text-white'
+                  : 'hover:bg-[var(--color-hover)]'
+              }`}
+            >
+              {tab === 'containers' ? t('docker.containers') : 
+               tab === 'images' ? t('docker.images') : 
+               t('docker.compose')}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto">
+        {activeTab === 'containers' && (
+          <div className="p-3">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">{t('docker.containers')} ({containers.length})</h3>
+              <button className="px-3 py-1 bg-[var(--color-primary)] text-white rounded text-sm hover:opacity-80">
+                ➕ {t('docker.run')} Container
+              </button>
+            </div>
+            
+            <div className="space-y-2">
+              {containers.map(container => (
+                <div key={container.id} className="p-3 bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      <span>{getStatusIcon(container.status)}</span>
+                      <div>
+                        <h4 className="font-medium">{container.name}</h4>
+                        <p className="text-sm text-[var(--color-textSecondary)]">{container.image}</p>
+                      </div>
+                    </div>
+                    <ContainerActions container={container} />
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4 text-sm text-[var(--color-textSecondary)]">
+                    <div>
+                      <span className="font-medium">Status:</span> 
+                      <span className={getStatusColor(container.status)}> {container.status}</span>
+                    </div>
+                    <div>
+                      <span className="font-medium">Size:</span> {container.size}
+                    </div>
+                    <div>
+                      <span className="font-medium">Ports:</span> {container.ports.join(', ')}
+                    </div>
+                    <div>
+                      <span className="font-medium">Created:</span> {new Date(container.created).toLocaleDateString()}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'images' && (
+          <div className="p-3">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Images ({images.length})</h3>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="nginx:latest"
+                  className="px-3 py-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded text-sm"
+                />
+                <button
+                  onClick={() => pullImage('nginx', 'latest')}
+                  className="px-3 py-1 bg-[var(--color-primary)] text-white rounded text-sm hover:opacity-80"
+                >
+                  📥 Pull
+                </button>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              {images.map(image => (
+                <div key={image.id} className="p-3 bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-medium">{image.repository}:{image.tag}</h4>
+                      <div className="flex gap-4 text-sm text-[var(--color-textSecondary)] mt-1">
+                        <span>Size: {image.size}</span>
+                        <span>Created: {new Date(image.created).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => {/* Run container from image */}}
+                        className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:opacity-80"
+                        title="Run"
+                      >
+                        ▶️
+                      </button>
+                      <button
+                        onClick={() => removeImage(image.id)}
+                        className="px-2 py-1 bg-red-600 text-white rounded text-xs hover:opacity-80"
+                        title="Remove"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'compose' && (
+          <div className="p-3">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Docker Compose ({composeProjects.length})</h3>
+              <button className="px-3 py-1 bg-[var(--color-primary)] text-white rounded text-sm hover:opacity-80">
+                ➕ Add Project
+              </button>
+            </div>
+            
+            <div className="space-y-2">
+              {composeProjects.map(project => (
+                <div key={project.id} className="p-3 bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      <span>{getStatusIcon(project.status)}</span>
+                      <div>
+                        <h4 className="font-medium">{project.name}</h4>
+                        <p className="text-sm text-[var(--color-textSecondary)]">{project.file}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      {project.status === 'stopped' ? (
+                        <button className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:opacity-80">
+                          ▶️ Up
+                        </button>
+                      ) : (
+                        <button className="px-2 py-1 bg-red-600 text-white rounded text-xs hover:opacity-80">
+                          ⏹️ Down
+                        </button>
+                      )}
+                      <button className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:opacity-80">
+                        🔄 Restart
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="text-sm text-[var(--color-textSecondary)]">
+                    <span className="font-medium">Services:</span> {project.services.join(', ')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Logs Modal */}
+      {selectedContainer && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg w-[600px] h-[400px] flex flex-col">
+            <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between">
+              <h3 className="font-semibold">
+                Container Logs - {containers.find(c => c.id === selectedContainer)?.name}
+              </h3>
+              <button
+                onClick={() => setSelectedContainer(null)}
+                className="text-[var(--color-textSecondary)] hover:text-[var(--color-text)]"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 p-4 overflow-y-auto bg-black text-green-400 font-mono text-sm">
+              {logs[selectedContainer]?.map((log, index) => (
+                <div key={index} className="mb-1">
+                  {log}
+                </div>
+              )) || <div>No logs available</div>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
