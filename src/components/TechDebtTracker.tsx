@@ -117,7 +117,7 @@ export default function TechDebtTracker({ fileIndex, onFileClick }: TechDebtTrac
 
             <div className="flex-1 min-h-0 p-4">
                 {filter === 'ALL' ? (
-                    <div className="flex h-full gap-4">
+                    <div className="flex flex-row h-full gap-4 w-full overflow-x-auto min-w-full">
                         <KanbanColumn title="📝 TODOs" items={todos} colorClass="text-blue-500" />
                         <KanbanColumn title="🔥 FIXMEs" items={fixmes} colorClass="text-red-500" />
                         <KanbanColumn title="💀 HACKs" items={hacks} colorClass="text-orange-500" />
