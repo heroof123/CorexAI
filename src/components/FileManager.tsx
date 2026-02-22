@@ -50,6 +50,19 @@ export default function FileManager({
   const [renameFile, setRenameFile] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Sahte (Mock) karmaşıklık hesaplayıcı - Path string'ine göre hash üretip renk döner
+  const getHeatmapColor = (filePath: string) => {
+    let hash = 0;
+    for (let i = 0; i < filePath.length; i++) {
+      hash = filePath.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const normalized = Math.abs(hash % 100); // 0-99
+
+    if (normalized > 80) return "rgba(239, 68, 68, 0.25)"; // 🔥 SICAK 
+    if (normalized > 50) return "rgba(245, 158, 11, 0.2)"; // ⚠️ ILIK
+    return undefined; // ❄️ SOĞUK (Mavi - Temiz/Stabil - YERİNE BOŞ GÖSTER)
+  };
+
   // Build file tree from flat file list
   useEffect(() => {
     if (!files.length) return;
@@ -238,10 +251,13 @@ export default function FileManager({
       <div key={node.path}>
         <div
           className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer transition-all duration-200 border border-transparent rounded-lg hover:border-[var(--neon-blue)] hover:shadow-[0_0_10px_rgba(0,243,255,0.2)] hover:bg-[var(--color-hover)] group ${isSelected
-              ? "bg-[var(--color-primary)] text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]"
-              : ""
+            ? "bg-[var(--color-primary)] text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]"
+            : ""
             }`}
-          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          style={{
+            paddingLeft: `${depth * 16 + 8}px`,
+            backgroundColor: !node.isDirectory && !isSelected ? getHeatmapColor(node.path) : undefined
+          }}
           onClick={() => !node.isDirectory && onFileSelect(node.path)}
           onContextMenu={e => handleContextMenu(e, node)}
           onDragStart={e => handleDragStart(e, node.path)}
