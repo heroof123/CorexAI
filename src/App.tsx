@@ -692,6 +692,7 @@ function AppContent() {
                     { id: "source-control", name: t("activity.sourceControl") },
                     { id: "run-debug", name: t("activity.runDebug") },
                     { id: "api-testing", name: t("activity.apiTesting") },
+                    { id: "tech-debt", name: "Tech Debt" },
                   ].map(nav => (
                     <button
                       key={nav.id}
