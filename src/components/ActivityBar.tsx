@@ -51,6 +51,7 @@ export default function ActivityBar({
     { id: "tasks", name: t("activity.tasks"), icon: "✅", shortcut: "Ctrl+Shift+T" },
     { id: "docker", name: t("activity.docker"), icon: "🐳", shortcut: "Ctrl+Shift+K" },
     { id: "mcp", name: "MCP Servers", icon: "🔌", shortcut: "Ctrl+Shift+M" },
+    { id: "tech-debt", name: "Tech Debt Tracker", icon: "💣", shortcut: "Ctrl+Shift+J" },
   ];
 
   const bottomActivities: ActivityItem[] = [

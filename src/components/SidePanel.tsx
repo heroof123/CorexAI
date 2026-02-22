@@ -10,7 +10,8 @@ import AccountsPanel from "./AccountsPanel";
 import { MCPPanel } from "./MCPPanel";
 
 import { useLanguage } from "../contexts/LanguageContext";
-// import { FileIndex } from '../types/index';
+import { FileIndex } from '../types/index';
+import TechDebtTracker from "./TechDebtTracker";
 
 interface SidePanelProps {
   activeView: string;
@@ -33,6 +34,7 @@ interface SidePanelProps {
   onNewProject?: () => void;
   onOpenWorkspace?: () => void;
   onSettingsClick?: () => void;
+  fileIndex?: FileIndex[];
 }
 
 export default function SidePanel({
@@ -52,6 +54,7 @@ export default function SidePanel({
   onNewProject,
   onOpenWorkspace,
   onSettingsClick,
+  fileIndex = [],
 }: SidePanelProps) {
   const { t } = useLanguage();
   const [searchTerm, setSearchTerm] = useState("");
@@ -427,6 +430,8 @@ export default function SidePanel({
         return <DockerIntegration />;
       case "mcp":
         return <MCPPanel />;
+      case "tech-debt":
+        return <TechDebtTracker fileIndex={fileIndex} onFileClick={onFileSelect} />;
       case "compare":
         return (
           <div className="p-4 text-xs text-neutral-400">

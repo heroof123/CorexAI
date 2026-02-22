@@ -852,6 +852,7 @@ function AppContent() {
                 onNewProject={project.handleOpenProject}
                 onOpenWorkspace={project.handleOpenProject}
                 onSettingsClick={() => ui.setShowSettingsPanel(true)}
+                fileIndex={fileIndex}
               />
             </Suspense>
 
