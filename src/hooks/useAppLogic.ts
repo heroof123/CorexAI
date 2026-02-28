@@ -82,10 +82,11 @@ export function useAppLogic() {
     // ── Dream Mode Integration ───────────────────────────────────────────────
     useEffect(() => {
         // Just start listening on mount
-        const { dreamModeService } = require("../services/dreamMode");
-        if (project.files.length > 0) {
-            dreamModeService.setProjectFiles(project.files);
-        }
+        import("../services/dreamMode").then(({ dreamModeService }) => {
+            if (project.files.length > 0) {
+                dreamModeService.setProjectFiles(project.files);
+            }
+        }).catch(err => console.error("Failed to load Dream Mode:", err));
     }, [project.files]);
 
     // ── File Editor ──────────────────────────────────────────────────────────

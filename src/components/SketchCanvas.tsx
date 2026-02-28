@@ -1,5 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { callAI } from '../services/ai/aiProvider';
+import { invoke } from '@tauri-apps/api/core';
 
 export const SketchCanvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -64,24 +66,27 @@ export const SketchCanvas: React.FC = () => {
         const canvas = canvasRef.current;
         if (!canvas) return;
 
-        setIsProcessing(true);
-        canvas.toDataURL('image/png'); // Just call it to simulate processing
-
         try {
-            // Send to AI for Vision Analysis
-            // const prompt = `Convert this UI sketch into a premium React + Tailwind CSS code.
-            // Return ONLY the code.`;
-
-            // In a real implementation, we would use a dedicated vision tool
-            // For now, we simulate the intent
+            setIsProcessing(true);
+            const dataUrl = canvas.toDataURL('image/png');
             console.log("🎨 Sketch-to-Code: Processing drawing...");
 
-            // We'll trigger a chat message with the image (simulated)
-            // const result = await invoke("process_vision_sketch", { image: dataUrl });
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            alert("🚀 Sketch analiz edildi ve kod üretildi!");
-        } catch (error) {
+            const prompt = `[IMAGES:1]\n[IMAGE_0]:${dataUrl}\nConvert this UI sketch into a premium React + Tailwind CSS code.
+Only return the valid code within a single markdown code block perfectly. Do not include any explanations. Include a default export component.`;
+
+            let code = await callAI(prompt, 'main');
+
+            if (code.startsWith("\`\`\`")) {
+                code = code.replace(/^\`\`\`(?:\w+)?\n([\s\S]*?)\`\`\`$/, '$1').trim();
+            }
+
+            const fileName = `SketchGen_${Date.now()}.tsx`;
+            await invoke("create_file", { path: `src/components/generated/${fileName}`, content: code });
+
+            alert(`🚀 Sketch analiz edildi ve kod üretildi!\n\nDosya: src/components/generated/${fileName}`);
+        } catch (error: any) {
             console.error(error);
+            alert(`❌ Hata: Kod üretilemedi. ${error.message || error}`);
         } finally {
             setIsProcessing(false);
         }

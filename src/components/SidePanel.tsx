@@ -479,7 +479,7 @@ export default function SidePanel({
       case "sketch-to-code":
         return <SketchCanvas />;
       case "polyglot":
-        return <PolyglotView />;
+        return <PolyglotView fileIndex={fileIndex} />;
       case "startup-gen":
         return <StartupGenView />;
 

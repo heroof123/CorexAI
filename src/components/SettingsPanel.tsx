@@ -133,6 +133,7 @@ export default function SettingsPanel({
   const saveSettings = (newSettings: Settings) => {
     setSettings(newSettings);
     localStorage.setItem("corex-settings", JSON.stringify(newSettings));
+    window.dispatchEvent(new Event("corex-settings-updated"));
   };
 
   const updateSetting = (category: keyof Settings, key: string, value: any) => {

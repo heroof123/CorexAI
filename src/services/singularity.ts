@@ -1,62 +1,140 @@
-import { callAI, getModelIdForRole } from "./ai";
+import { callAI } from "./ai";
 import { invoke } from "@tauri-apps/api/core";
 import { FileIndex } from "../types";
 
+function extractSingularityJson(text: string): any {
+    try {
+        const jsonBlockRegex = /```(?:json)?\s*([\s\S]*?)```/;
+        const match = text.match(jsonBlockRegex);
+        if (match && match[1]) {
+            return JSON.parse(match[1].trim());
+        }
+        const firstBrace = text.indexOf('{');
+        const lastBrace = text.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            return JSON.parse(text.substring(firstBrace, lastBrace + 1));
+        }
+        return JSON.parse(text);
+    } catch {
+        return null;
+    }
+}
+
 export class SingularityService {
     public static async selfModify(intention: string, fileIndex: FileIndex[]): Promise<string> {
-        // Collect core UI and service files from fileIndex (specifically frontend TS/TSX + CSS)
-        const reactFiles = fileIndex.filter(f =>
-            (f.path.endsWith('.tsx') || f.path.endsWith('.ts') || f.path.endsWith('.css'))
+        // Hedef kitle (500GB+ VRAM kullananlar) için tüm proje dosyalarını (React, Rust) belleğe alıyoruz
+        const targetFiles = fileIndex.filter(f =>
+            (f.path.endsWith('.tsx') || f.path.endsWith('.ts') || f.path.endsWith('.css') || f.path.endsWith('.rs'))
             && !f.path.includes('node_modules')
-        ).slice(0, 50); // limit to a reasonable amount
+            && !f.path.includes('target')
+        );
 
-        const fileSummaries = reactFiles.map(f => `--- FILE: ${f.path} ---\n\`\`\`\n${f.content.substring(0, 3000)}...\n\`\`\``).join("\n\n");
+        // Dev model için Full Context Window (Tüm projeyi tek seferde gönderiyoruz)
+        const fileSummaries = targetFiles.map(f => `--- FILE: ${f.path} ---\n${f.content.substring(0, Math.min(f.content.length, 3000))}`).join("\n\n");
 
-        const prompt = `You are 'The Singularity', an advanced self-rewriting IDE.
-Your task is to modify YOUR OWN source code based on the user's request, acting as a living organism adapting to the user in real time.
-User request: "${intention}"
+        let iter = 0;
+        const maxIter = 7;
+        let done = false;
+        let history = "";
 
-Here are the main components and files in your own source tree:
+        history += `[HEDEF]: ${intention}\n`;
+        history += `[BAŞLANGIÇ]: Singularity Agentic Loop Aktif... ${targetFiles.length} dosya belleğe yüklendi.\n`;
+
+        while (iter < maxIter && !done) {
+            iter++;
+
+            const prompt = `You are 'The Singularity', an advanced self-rewriting autonomous IDE agent running on a 500GB+ VRAM Supercomputer.
+You possess Infinite Context capabilities. 
+Your ultimate goal: "${intention}"
+
+You operate in a continuous ReAct (Reasoning and Acting) loop.
+Here are the project's core files for context:
 ${fileSummaries}
 
-Analyze the request and decide which file needs to be modified.
-If multiple files are involved, you can return multiple modifications.
-You MUST provide the exact full path of the file to modify, and the ENTIRE new content of the file. 
+--- TASK HISTORY (What you have done so far) ---
+${history}
 
-Return your response purely as a JSON array of objects.
-Do not wrap it in markdown block like \`\`\`json, just return raw JSON text.
-Format precisely:
-[
-  {
-    "path": "the/exact/path/App.tsx",
-    "content": "the new full content..."
-  }
-]
+--- SHADOW WORKSPACE PROTOCOL ---
+1. You must act as if you are modifying a mirror clone (Shadow Workspace).
+2. You can read, create, modify files, and even run terminal commands to test (npm run build, cargo build).
+3. If the user asks for a new architectural feature, create all necessary files (components, contexts, services).
+4. Provide the EXACT full paths for each modified or created file.
 
-If you cannot fulfill the request due to complexity or lack of files, return an empty array: []`;
+--- ACTION FORMAT (STRICT JSON) ---
+You must output ONLY ONE valid JSON object representing your next action. No markdown formatting, no explanations outside JSON.
+{
+  "thought": "1-2 sentences explaining what you are doing in this step",
+  "action": "read_file" | "write_file" | "run_command" | "done",
+  "path": "path/to/file.tsx", // Required for read_file and write_file
+  "content": "Entire file content", // Required ONLY for write_file
+  "command": "npm run build", // Required ONLY for run_command
+  "summary": "What was achieved globally" // Required ONLY for done
+}
 
-        try {
-            const response = await callAI(prompt, getModelIdForRole());
-            let cleaned = response.trim();
-            if (cleaned.startsWith('\`\`\`')) {
-                cleaned = cleaned.replace(/^\`\`\`(?:\w+)?\n([\s\S]*?)\`\`\`$/, '$1').trim();
+If you have achieved the goal, return {"action": "done", "summary": "Goal completely achieved."}`;
+
+            try {
+                // Modeli main seçiyoruz çünkü 1M Token Context gerektirebilir
+                const responseRaw = await callAI(prompt, "main");
+                const actionObj = extractSingularityJson(responseRaw);
+
+                if (!actionObj || !actionObj.action) {
+                    history += `\n[${iter}] ⚠️ GEÇERSİZ EYLEM: Yapay Zeka anlamsız bir yanıt verdi, atlanıyor...\n`;
+                    continue;
+                }
+
+                history += `\n[${iter}] 🧠 DÜŞÜNCE: ${actionObj.thought || 'N/A'}\n`;
+                history += `[${iter}] ⚙️ EYLEM: ${actionObj.action}\n`;
+
+                if (actionObj.action === "read_file" && actionObj.path) {
+                    try {
+                        const content = await invoke<string>("read_file", { path: actionObj.path });
+                        history += `[${iter}] 📄 SONUÇ (${actionObj.path}): Başarıyla okundu. Uzunluk: ${content.length} karakter.\n`;
+                    } catch (e) {
+                        history += `[${iter}] ❌ HATA (${actionObj.path}): Dosya okunamadı. ${e}\n`;
+                    }
+                }
+                else if (actionObj.action === "write_file" && actionObj.path) {
+                    try {
+                        await invoke("create_file", { path: actionObj.path, content: actionObj.content || "" });
+                        history += `[${iter}] ✍️ SONUÇ (${actionObj.path}): Dosya başarıyla oluşturuldu/güncellendi.\n`;
+                    } catch (e) {
+                        history += `[${iter}] ❌ HATA (${actionObj.path}): Dosya yazılamadı. ${e}\n`;
+                    }
+                }
+                else if (actionObj.action === "run_command" && actionObj.command) {
+                    try {
+                        history += `[${iter}] ⚡ ÇALIŞTIRILIYOR: ${actionObj.command}\n`;
+                        const res = await invoke<any>("execute_terminal_command", {
+                            command: actionObj.command,
+                            path: "."
+                        });
+                        history += `[${iter}] ✅ KOMUT ÇIKTISI (STDOUT): ${String(res.stdout || '').substring(0, 300)}...\n`;
+                        if (res.stderr) {
+                            history += `[${iter}] ⚠️ KOMUT ÇIKTISI (STDERR): ${String(res.stderr).substring(0, 300)}...\n`;
+                        }
+                    } catch (e) {
+                        history += `[${iter}] ❌ KOMUT HATASI: ${e}\n`;
+                    }
+                }
+                else if (actionObj.action === "done") {
+                    done = true;
+                    history += `\n🎉 [BAŞARILI]: ${actionObj.summary || 'Görev bitti.'}\n`;
+                }
+                else {
+                    history += `[${iter}] ⚠️ BİLİNMEYEN EYLEM TÜRÜ: ${actionObj.action}\n`;
+                }
+
+            } catch (error) {
+                history += `\n[${iter}] ❌ SİSTEM ÇÖKTÜ: Büyük dil modeli veya API hatası (${error}).\n`;
+                break; // Hata durumunda döngüyü kır
             }
-
-            const changes = JSON.parse(cleaned) as { path: string, content: string }[];
-
-            if (!changes || changes.length === 0) {
-                return `👑 **The Singularity Reddi:** İsteğini gerçekleştirmek için kendi kodumda uygun bir değişiklik profili bulamadım. Belki daha spesifik olmalısın.`;
-            }
-
-            for (const change of changes) {
-                // Ensure writing files
-                await invoke("write_file", { path: change.path, content: change.content });
-            }
-
-            const modifiedPaths = changes.map(c => c.path.split(/[\\\/]/).pop()).join(", ");
-            return `👑 **The Singularity Gerçekleşti:** Kendi kodumu başarıyla modifiye ettim ve anında derlendi! 🚀 \n\nModifiye edilen sinapslar (dosyalar): **${modifiedPaths}**`;
-        } catch (error) {
-            return `👑 **The Singularity Çöktü:** Kendi kodumu değiştirmeye çalışırken hata oluştu. Detay: ${error}`;
         }
+
+        if (!done) {
+            history += `\n⚠️ [ZAMAN AŞIMI]: Maksimum karar döngüsü (${maxIter}) bitti. Evrim duraklatıldı.\n`;
+        }
+
+        return `👑 **The Singularity Evrimi Raporu:**\n\n\`\`\`text\n${history}\n\`\`\``;
     }
 }

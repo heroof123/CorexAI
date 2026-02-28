@@ -1232,6 +1232,21 @@ export default function ChatPanel({
   const [showHistory, setShowHistory] = useState(false);
   const [sessions, setSessions] = useState<StoredSession[]>([]);
   const [currentSessionId] = useState(() => Math.random().toString(36).slice(2));
+  const [isSingularityMode, setIsSingularityMode] = useState(false);
+  const [showMentorDropdown, setShowMentorDropdown] = useState(false);
+  const [showAgentDropdown, setShowAgentDropdown] = useState(false);
+
+  // Close dropdowns on outside click roughly
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (!(e.target as Element).closest(".dropdown-container")) {
+        setShowMentorDropdown(false);
+        setShowAgentDropdown(false);
+      }
+    };
+    document.addEventListener("click", handleOutsideClick);
+    return () => document.removeEventListener("click", handleOutsideClick);
+  }, []);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -1317,6 +1332,10 @@ export default function ChatPanel({
       messageToSend = `[IMAGES:${uploadedImages.length}]\n${uploadedImages.map((img, i) => `[IMAGE_${i}]:${img}`).join("\n")}\n\n${input}`;
     }
 
+    if (isSingularityMode && !messageToSend.trim().toLowerCase().startsWith("/singularity")) {
+      messageToSend = `/singularity ${messageToSend}`;
+    }
+
     // Mesajı ve bağlamı ayrı ayrı gönder
     // messageToSend -> UI'da görünür
     // systemContext -> Sadece AI'ya gider (Prompt'a eklenir)
@@ -1335,6 +1354,22 @@ export default function ChatPanel({
       reader.readAsDataURL(file);
     });
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    Array.from(items).forEach(item => {
+      if (item.type.indexOf("image") !== -1) {
+        const file = item.getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = event => setUploadedImages(prev => [...prev, event.target?.result as string]);
+          reader.readAsDataURL(file);
+        }
+      }
+    });
   };
 
   const removeImage = (index: number) =>
@@ -1370,65 +1405,15 @@ export default function ChatPanel({
   ];
 
   return (
-    <div className="h-full flex flex-col bg-[var(--color-background)]">
-      {/* Header */}
-      <div className="flex-shrink-0 border-b border-neutral-800 px-3 py-1.5 bg-[var(--color-background)]">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 overflow-hidden">
-            <div className="flex items-center justify-center w-5 h-5 rounded bg-primary/20 text-primary flex-shrink-0">
-              <span className="text-[10px]">🤖</span>
-            </div>
-            <h3 className="text-xs font-medium text-neutral-300 truncate">
-              {modelName}
-              {messages.length > 0 && (
-                <span className="ml-1.5 text-neutral-500 font-normal">
-                  · {messages.length} mesaj
-                </span>
-              )}
-            </h3>
-          </div>
-          <div className="flex items-center gap-1">
-            {isIndexing && (
-              <span className="text-[10px] text-slate-400 animate-pulse">🧠 İndeksleniyor...</span>
-            )}
-            {/* Geçmiş butonu */}
-            <button
-              onClick={() => {
-                setSessions(loadSessions());
-                setShowHistory(h => !h);
-              }}
-              className="px-2 py-1 text-[10px] text-neutral-400 hover:text-white rounded hover:bg-neutral-800 transition-colors"
-              title="Sohbet Geçmişi"
-            >
-              🕙
-            </button>
-            {onNewSession && (
-              <button
-                onClick={onNewSession}
-                className="px-2 py-1 text-[10px] text-neutral-400 hover:text-white rounded hover:bg-neutral-800 transition-colors"
-                title="Yeni Oturum"
-              >
-                Yeni
-              </button>
-            )}
-            <button
-              onClick={() => onMentorModeToggle?.(!isMentorMode)}
-              className={`px-2 py-1 text-[10px] rounded transition-all flex items-center gap-1.5 ${isMentorMode ? 'bg-blue-600/20 text-blue-400 font-bold border border-blue-500/30' : 'text-neutral-500 hover:text-white hover:bg-neutral-800'}`}
-              title="Sokratik Mentor Modu"
-            >
-              {isMentorMode ? '🧠 Mentor: Açık' : '🧠 Mentor'}
-            </button>
-          </div>
-        </div>
-      </div>
+    <div className="h-full flex flex-col bg-[var(--color-background)] relative">
 
       {/* Oturum Geçmişi Dropdown */}
       {showHistory && (
         <div
           style={{
             position: "absolute",
-            top: 36,
-            right: 4,
+            bottom: 70,
+            right: 8,
             zIndex: 9999,
             width: 260,
             background: "#181818",
@@ -1632,8 +1617,8 @@ export default function ChatPanel({
           )}
           <textarea
             ref={textareaRef}
-            className="w-full bg-[var(--color-hover)] border border-[var(--color-border)] focus:neon-border rounded-lg px-2.5 py-1.5 pr-10 text-xs outline-none resize-none text-[var(--color-text)] transition-all duration-200 placeholder-neutral-500"
-            placeholder={isIndexing ? "🧠 Proje indeksleniyor..." : "✨ AI ile sohbet et..."}
+            className={`w-full bg-[var(--color-hover)] border transition-all duration-300 rounded-lg px-2.5 py-1.5 pr-10 text-xs outline-none resize-none text-[var(--color-text)] placeholder-neutral-500 ${isSingularityMode ? 'border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.15)] focus:border-purple-400' : 'border-[var(--color-border)] focus:neon-border'}`}
+            placeholder={isIndexing ? "🧠 Proje indeksleniyor..." : isSingularityMode ? "👑 Otonom Agent görev için hazır..." : "✨ AI ile sohbet et..."}
             rows={1}
             value={input}
             onChange={e => setInput(e.target.value)}
@@ -1643,6 +1628,7 @@ export default function ChatPanel({
                 handleSend();
               }
             }}
+            onPaste={handlePaste}
             disabled={isLoading || isIndexing}
           />
           <button
@@ -1655,11 +1641,96 @@ export default function ChatPanel({
             </svg>
           </button>
         </div>
-        <div className="mt-1 flex items-center justify-between text-[10px] text-neutral-600">
-          <div className="flex items-center gap-2">
+        <div className="mt-2 flex items-center justify-between text-[11px] text-neutral-400 font-medium">
+          <div className="flex items-center gap-1">
+            {onNewSession && (
+              <button
+                onClick={onNewSession}
+                className="px-2 py-1 cursor-pointer hover:bg-white/5 transition-colors flex items-center justify-center rounded text-neutral-500 hover:text-neutral-300"
+                title="Yeni Oturum"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+              </button>
+            )}
+
+            <div className="relative dropdown-container">
+              <button
+                onClick={() => {
+                  setShowMentorDropdown(!showMentorDropdown);
+                  setShowAgentDropdown(false);
+                }}
+                className={`flex items-center gap-1 px-2 py-1 cursor-pointer rounded transition-all group ${showMentorDropdown ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-neutral-400'}`}
+                title="Model / Mentor Seçimi"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`opacity-50 transition-transform ${showMentorDropdown ? 'rotate-180' : ''}`}><path d="M18 15l-6-6-6 6" /></svg>
+                <span className={isMentorMode ? "text-blue-400 drop-shadow-md" : "text-neutral-400"}>{isMentorMode ? "Mentor" : "Fast"}</span>
+              </button>
+
+              {showMentorDropdown && (
+                <div className="absolute bottom-full left-0 mb-1 w-32 bg-[#181818] border border-neutral-800 rounded-lg shadow-xl overflow-hidden z-50 py-1 font-sans">
+                  <button
+                    onClick={() => {
+                      if (onMentorModeToggle) onMentorModeToggle(false);
+                      setShowMentorDropdown(false);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors flex items-center gap-2 ${!isMentorMode ? 'bg-white/10 text-white' : 'text-neutral-400 hover:bg-white/5 hover:text-white'}`}
+                  >
+                    ⚡ Fast Model
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (onMentorModeToggle) onMentorModeToggle(true);
+                      setShowMentorDropdown(false);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors flex items-center gap-2 ${isMentorMode ? 'bg-blue-500/20 text-blue-400' : 'text-neutral-400 hover:bg-white/5 hover:text-white'}`}
+                  >
+                    🧠 Mentor
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="relative dropdown-container">
+              <button
+                onClick={() => {
+                  setShowAgentDropdown(!showAgentDropdown);
+                  setShowMentorDropdown(false);
+                }}
+                className={`flex items-center gap-1 px-2 py-1 cursor-pointer rounded transition-all group ${showAgentDropdown ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-neutral-400'}`}
+                title="Ajan Modu Seçimi"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`opacity-50 transition-transform ${showAgentDropdown ? 'rotate-180' : ''}`}><path d="M18 15l-6-6-6 6" /></svg>
+                <span className={isSingularityMode ? "text-purple-400 drop-shadow-md" : "text-neutral-400"}>{isSingularityMode ? "Agent Otonom" : modelName}</span>
+              </button>
+
+              {showAgentDropdown && (
+                <div className="absolute bottom-full left-0 mb-1 w-40 bg-[#181818] border border-neutral-800 rounded-lg shadow-xl overflow-hidden z-50 py-1 font-sans">
+                  <button
+                    onClick={() => {
+                      setIsSingularityMode(false);
+                      setShowAgentDropdown(false);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors flex items-center gap-2 ${!isSingularityMode ? 'bg-white/10 text-white' : 'text-neutral-400 hover:bg-white/5 hover:text-white'}`}
+                  >
+                    💬 Normal AI
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsSingularityMode(true);
+                      setShowAgentDropdown(false);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors flex items-center gap-2 ${isSingularityMode ? 'bg-purple-500/20 text-purple-400 font-medium' : 'text-neutral-400 hover:bg-white/5 hover:text-white'}`}
+                  >
+                    👑 Agent Otonom
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="p-1 hover:text-neutral-300"
+              className="px-2 py-1 cursor-pointer hover:bg-white/5 transition-colors flex items-center justify-center rounded ml-1 text-neutral-500 hover:text-neutral-300"
+              title="Görsel Yükle"
             >
               📷
             </button>
@@ -1671,18 +1742,34 @@ export default function ChatPanel({
               onChange={handleImageUpload}
               className="hidden"
             />
+          </div>
+          <div className="flex items-center gap-2">
+            {isIndexing && (
+              <span className="text-[9px] text-blue-400/70 animate-pulse font-mono flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping"></span> İndeksleniyor
+              </span>
+            )}
+            <button
+              onClick={() => {
+                setSessions(loadSessions());
+                setShowHistory(h => !h);
+              }}
+              className="px-2 py-1 text-[10px] text-neutral-500 hover:text-neutral-300 rounded transition-colors"
+              title="Sohbet Geçmişi"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+            </button>
             {isStreaming && onStopGeneration && (
-              <button onClick={onStopGeneration} className="text-red-400">
+              <button onClick={onStopGeneration} className="text-red-400 hover:text-red-300 px-2 py-1">
                 Durdur
               </button>
             )}
             {!isStreaming && !isLoading && messages.length > 0 && onRegenerateResponse && (
-              <button onClick={onRegenerateResponse} className="hover:text-neutral-300">
+              <button onClick={onRegenerateResponse} className="hover:text-neutral-300 px-2 py-1">
                 🔄 Yeniden
               </button>
             )}
           </div>
-          <span>Shift+Enter yeni satır</span>
         </div>
       </div>
     </div>

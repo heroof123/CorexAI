@@ -27,6 +27,31 @@ export default function EnhancedEditor({
   const [wordWrap, setWordWrap] = useState(false);
   const [fontSize, setFontSize] = useState(14);
   const [tabSize, setTabSize] = useState(2);
+  const [fontFamily, setFontFamily] = useState("Consolas, Monaco, monospace");
+
+  // Load settings globally
+  useEffect(() => {
+    const loadSettings = () => {
+      const saved = localStorage.getItem("corex-settings");
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed.editor) {
+            setShowMinimap(parsed.editor.minimap ?? true);
+            setShowLineNumbers(parsed.editor.lineNumbers ?? true);
+            setWordWrap(parsed.editor.wordWrap ?? false);
+            setFontSize(parsed.editor.fontSize ?? 14);
+            setTabSize(parsed.editor.tabSize ?? 2);
+            setFontFamily(parsed.editor.fontFamily ?? "Consolas, Monaco, monospace");
+          }
+        } catch (e) { }
+      }
+    };
+
+    loadSettings();
+    window.addEventListener("corex-settings-updated", loadSettings);
+    return () => window.removeEventListener("corex-settings-updated", loadSettings);
+  }, []);
 
   // Initialize Monaco Editor
   useEffect(() => {
@@ -67,6 +92,7 @@ export default function EnhancedEditor({
       language,
       theme: "vs-dark",
       fontSize,
+      fontFamily,
       tabSize,
       insertSpaces: true,
       detectIndentation: true,
@@ -339,13 +365,14 @@ export default function EnhancedEditor({
     if (monacoRef.current) {
       monacoRef.current.updateOptions({
         fontSize,
+        fontFamily,
         tabSize,
         minimap: { enabled: showMinimap },
         lineNumbers: showLineNumbers ? "on" : "off",
         wordWrap: wordWrap ? "on" : "off",
       });
     }
-  }, [fontSize, tabSize, showMinimap, showLineNumbers, wordWrap]);
+  }, [fontSize, fontFamily, tabSize, showMinimap, showLineNumbers, wordWrap]);
 
   return (
     <div className="h-full flex flex-col bg-[var(--color-background)]">

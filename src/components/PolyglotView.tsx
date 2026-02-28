@@ -1,25 +1,31 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { polyglotEngine } from '../services/polyglotEngine';
+import { FileIndex } from '../types';
 
-export const PolyglotView: React.FC = () => {
+export const PolyglotView: React.FC<{ fileIndex: FileIndex[] }> = ({ fileIndex }) => {
     const [targetLang, setTargetLang] = useState('Rust');
     const [isTranslating, setIsTranslating] = useState(false);
     const [progress, setProgress] = useState(0);
+    const [progressText, setProgressText] = useState('Dosyalar analiz ediliyor ve çeviri uygulanıyor...');
 
     const handleTranslate = async () => {
         setIsTranslating(true);
         setProgress(0);
         try {
-            // Mocking progress for UX
             const interval = setInterval(() => {
-                setProgress(prev => Math.min(prev + 10, 90));
-            }, 500);
+                // Sadece görsel efekt olarak %90'a kadar dolmasını sağla, gerisini backend halledecek
+                setProgress(prev => Math.min(prev + 2, 90));
+            }, 1000);
 
-            await polyglotEngine.translateProject(targetLang);
+            await polyglotEngine.translateProject(targetLang, fileIndex, (p: number, label: string) => {
+                setProgressText(label);
+                if (p > 0) setProgress(Math.max(p, 90));
+            });
 
             clearInterval(interval);
             setProgress(100);
+            setProgressText("Tamamlandı!");
             alert(`🚀 Proje başarıyla ${targetLang} diline çevrildi!`);
         } catch (error) {
             console.error(error);
@@ -65,10 +71,10 @@ export const PolyglotView: React.FC = () => {
                             <motion.div
                                 className="h-full bg-emerald-500"
                                 initial={{ width: 0 }}
-                                animate={{ width: `${progress}%` }}
+                                animate={{ width: `${progress}% ` }}
                             />
                         </div>
-                        <p className="text-[9px] text-center text-neutral-500">Dosyalar analiz ediliyor ve çeviri uygulanıyor...</p>
+                        <p className="text-[9px] text-center text-neutral-500">{progressText}</p>
                     </div>
                 )}
             </div>

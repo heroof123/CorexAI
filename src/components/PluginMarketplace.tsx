@@ -3,15 +3,56 @@ import { useState } from "react";
 import { usePlugins, MarketplacePlugin } from "../hooks/usePlugins";
 import LoadingSpinner from "./LoadingSpinner";
 import { vscodeService } from "../services/vscodeService";
-import { Code, Palette, Import, Terminal } from "lucide-react";
+import { Code, Palette, Import, Terminal, Sparkles } from "lucide-react";
+import { callAI } from "../services/ai/aiProvider";
+import { invoke } from "@tauri-apps/api/core";
 
 export default function PluginMarketplace() {
     const { marketplacePlugins, loading, togglePlugin, refreshPlugins } = usePlugins();
-    const [activeTab, setActiveTab] = useState<"browse" | "installed" | "vscode">("browse");
+    const [activeTab, setActiveTab] = useState<"browse" | "installed" | "vscode" | "ai-builder">("browse");
     const [vscodeJson, setVscodeJson] = useState("");
     const [importLog, setImportLog] = useState("");
 
+    // AI Builder States
+    const [aiIdea, setAiIdea] = useState("");
+    const [isGeneratingPlugin, setIsGeneratingPlugin] = useState(false);
+    const [generateLog, setGenerateLog] = useState("");
+
     const installedCount = marketplacePlugins.filter(p => p.installed).length;
+
+    const handleAIGeneratePlugin = async () => {
+        if (!aiIdea.trim()) return;
+        setIsGeneratingPlugin(true);
+        setGenerateLog("🧠 Eklenti mimarisi tasarlanıyor...");
+
+        try {
+            const prompt = `Write a simple javascript/typescript single file plugin for a React-based IDE based on this idea: "${aiIdea}".
+You must return ONLY the valid TypeScript code within a single markdown code block perfectly. 
+Do not include any explanations. Include a JSDoc block at the top containing name, version, and description metadata.
+Example:
+/**
+ * @name MyCoolPlugin
+ * @version 1.0.0
+ * @description Does cool things
+ */
+export const activate = () => { console.log("Activated"); };
+`;
+            let code = await callAI(prompt, 'coder');
+            if (code.startsWith("\`\`\`")) {
+                code = code.replace(/^\`\`\`(?:\w+)?\n([\s\S]*?)\`\`\`$/, '$1').trim();
+            }
+
+            setGenerateLog("✍️ Kod yazılıyor. Diske kaydedilecek...");
+            const pluginName = "Plugin_" + Date.now();
+            await invoke("create_file", { path: `src/plugins/generated/${pluginName}.ts`, content: code });
+
+            setGenerateLog(`✅ ${pluginName}.ts başarıyla "src/plugins/generated" konumuna oluşturuldu!`);
+        } catch (e: any) {
+            setGenerateLog(`❌ Hata: ${e.message || e}`);
+        } finally {
+            setIsGeneratingPlugin(false);
+        }
+    };
 
     return (
         <div className="h-full flex flex-col bg-[var(--color-background)] overflow-hidden">
@@ -65,10 +106,52 @@ export default function PluginMarketplace() {
                     >
                         <Import size={12} /> VS Code İçe Aktar
                     </button>
+                    <button
+                        onClick={() => setActiveTab("ai-builder")}
+                        className={`px-6 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeTab === "ai-builder"
+                            ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20"
+                            : "text-neutral-500 hover:text-white"
+                            }`}
+                    >
+                        <Sparkles size={12} /> Otonom Eklenti
+                    </button>
                 </div>
             </div>
 
-            {activeTab === "vscode" ? (
+            {activeTab === "ai-builder" ? (
+                <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 animate-in fade-in duration-300">
+                    <div className="bg-emerald-600/10 border border-emerald-500/20 rounded-2xl p-6">
+                        <h2 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
+                            <Sparkles className="text-emerald-500" /> Otonom Eklenti Oluşturucu
+                        </h2>
+                        <p className="text-sm text-neutral-400 mb-6">
+                            IDE için hayalindeki eklentiyi kelimelere dök. Yapay zeka senin için anında tüm kodu yazıp sisteme entegre etsin.
+                        </p>
+
+                        <textarea
+                            value={aiIdea}
+                            onChange={(e) => setAiIdea(e.target.value)}
+                            placeholder='Örn: Kod içindeki bütün konsol loglarını tek tıkla silen bir buton ekle...'
+                            className="w-full h-32 bg-black/40 border border-white/5 rounded-xl p-4 text-xs font-mono text-emerald-200 outline-none focus:border-emerald-500/50 transition-all mb-4"
+                            disabled={isGeneratingPlugin}
+                        />
+
+                        <button
+                            onClick={handleAIGeneratePlugin}
+                            disabled={isGeneratingPlugin || !aiIdea.trim()}
+                            className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                            {isGeneratingPlugin ? '⏳ Üretiliyor...' : 'Eklentiyi Üret ve Ekle'}
+                        </button>
+
+                        {generateLog && (
+                            <div className={`mt-6 p-4 rounded-xl text-xs font-medium animate-in zoom-in-95 ${generateLog.includes('❌') ? 'bg-red-600/10 text-red-400 border border-red-500/20' : 'bg-emerald-600/10 text-emerald-400 border border-emerald-500/20'}`}>
+                                {generateLog}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            ) : activeTab === "vscode" ? (
                 <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 animate-in fade-in duration-300">
                     <div className="bg-orange-600/10 border border-orange-500/20 rounded-2xl p-6">
                         <h2 className="text-lg font-bold text-white mb-2 flex items-center gap-2">

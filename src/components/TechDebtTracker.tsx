@@ -1,5 +1,7 @@
 import { useState, useMemo } from 'react';
 import { FileIndex } from '../types/index';
+import { callAI } from '../services/ai/aiProvider';
+import { invoke } from '@tauri-apps/api/core';
 
 interface TechDebtTrackerProps {
     fileIndex: FileIndex[];
@@ -16,6 +18,61 @@ interface DebtItem {
 
 export default function TechDebtTracker({ fileIndex, onFileClick }: TechDebtTrackerProps) {
     const [filter, setFilter] = useState<'ALL' | 'TODO' | 'FIXME' | 'HACK'>('ALL');
+    const [fixingId, setFixingId] = useState<string | null>(null);
+
+    const handleAIFix = async (e: React.MouseEvent, item: DebtItem) => {
+        e.stopPropagation();
+        setFixingId(item.id);
+
+        try {
+            const file = fileIndex.find(f => f.path === item.filePath);
+            if (!file) throw new Error("Dosya bulunamadı");
+
+            const contextStart = Math.max(0, item.line - 15);
+            const contextEnd = Math.min(file.content.split('\n').length, item.line + 15);
+            const fileLines = file.content.split('\n');
+            const contextStr = fileLines.slice(contextStart, contextEnd).map((l, i) => `${contextStart + i + 1}| ${l}`).join('\n');
+
+            const prompt = `Sen kıdemli bir yazılımcısın. Aşağıdaki koddaki "// ${item.type}: ${item.content}" işaretli teknik borcu (tech debt/todo/fixme/hack) DÜZELTMEN gerekiyor.
+Dosya Yolu: ${item.filePath}
+Sorunlu Satır: ${item.line}
+
+BAĞLAM (Satır Numaralı):
+${contextStr}
+
+YALNIZCA değişen satırları aşağıdaki formatta döndür:
+<<<SEARCH
+(eski satırlar)
+===
+(yeni kodlar)
+>>>REPLACE
+
+Eğer tüm dosyayı değiştirmen gerekiyorsa, direk kod bloğu olarak ver. Başka hiçbir açıklama yapma.`;
+
+            let response = await callAI(prompt, "main");
+
+            // Eğer <<<SEARCH === >>>REPLACE varsa, bu formatı parse et (basitçe)
+            if (response.includes("<<<SEARCH") && response.includes(">>>REPLACE")) {
+                const searchPart = response.split('<<<SEARCH')[1].split('===')[0].trim();
+                const replacePart = response.split('===')[1].split('>>>REPLACE')[0].trim();
+
+                const newContent = file.content.replace(searchPart, replacePart);
+                await invoke("write_file", { path: item.filePath, content: newContent });
+            } else {
+                // Eğer doğrudan kod verdiyse
+                if (response.startsWith("\`\`\`")) {
+                    response = response.replace(/^\`\`\`(?:\w+)?\n([\s\S]*?)\`\`\`$/, '$1').trim();
+                }
+                await invoke("write_file", { path: item.filePath, content: response });
+            }
+            alert(`✅ ${item.type} başarıyla çözüldü! Lütfen dosyadaki değişikliği kontrol et.`);
+        } catch (err) {
+            console.error(err);
+            alert(`❌ Hata: Kod düzeltilemedi.`);
+        } finally {
+            setFixingId(null);
+        }
+    };
 
     const debtItems = useMemo(() => {
         const items: DebtItem[] = [];
@@ -85,6 +142,13 @@ export default function TechDebtTracker({ fileIndex, onFileClick }: TechDebtTrac
                                     Line {item.line}
                                 </span>
                             </div>
+                            <button
+                                onClick={(e) => handleAIFix(e, item)}
+                                disabled={fixingId === item.id}
+                                className="mt-2 w-full text-[9px] py-1 bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 rounded border border-blue-500/30 transition-all font-bold tracking-widest uppercase disabled:opacity-50"
+                            >
+                                {fixingId === item.id ? 'Fixing...' : '🌟 AI Autofix'}
+                            </button>
                         </div>
                     ))
                 )}
@@ -147,6 +211,15 @@ export default function TechDebtTracker({ fileIndex, onFileClick }: TechDebtTrac
                                                 <span>{item.filePath.split(/[\\/]/).pop()}</span>
                                                 <span className="text-[var(--color-border)]">|</span>
                                                 <span>Satır {item.line}</span>
+                                            </div>
+                                            <div className="flex gap-2 w-full mt-2">
+                                                <button
+                                                    onClick={(e) => handleAIFix(e, item)}
+                                                    disabled={fixingId === item.id}
+                                                    className="w-full text-[9px] py-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 rounded border border-blue-500/30 transition-all font-bold tracking-widest uppercase disabled:opacity-50"
+                                                >
+                                                    {fixingId === item.id ? 'Kod Düzeltiliyor...' : '🌟 AI Autofix İle Çöz'}
+                                                </button>
                                             </div>
                                         </div>
                                     </div>

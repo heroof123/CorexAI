@@ -13,33 +13,15 @@ export const StartupGenView: React.FC = () => {
         setSteps(['Fikir analiz ediliyor...', 'Pazar araştırması yapılıyor...', 'Teknoloji stacki belirleniyor...']);
 
         try {
-            // Mocking step updates
-            const allSteps = [
-                'Klasör yapısı oluşturuluyor...',
-                'Next.js boilerplate kuruluyor...',
-                'Tailwind konfigürasyonu yapılıyor...',
-                'Ana sayfa tasarlanıyor...',
-                'API routeları yazılıyor...',
-                'Veritabanı şeması oluşturuluyor...'
-            ];
+            await startupGenerator.generateStartup(idea, ".", (step) => {
+                setSteps(prev => [...prev, step]);
+            });
 
-            let i = 0;
-            const interval = setInterval(() => {
-                if (i < allSteps.length) {
-                    setSteps(prev => [...prev, allSteps[i]]);
-                    i++;
-                } else {
-                    clearInterval(interval);
-                }
-            }, 1000);
-
-            await startupGenerator.generateStartup(idea);
-
-            clearInterval(interval);
             setSteps(prev => [...prev, '🔥 Girişim başarıyla başlatıldı!']);
             alert("🚀 Girişiminiz hazır! Klasörü kontrol edin.");
         } catch (error) {
             console.error(error);
+            setSteps(prev => [...prev, `❌ Hata: ${error}`]);
         } finally {
             setIsGenerating(false);
         }

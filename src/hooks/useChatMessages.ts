@@ -152,7 +152,7 @@ export function useChatMessages({
 
                 if (!filename) {
                     const ext = EXTENSION_MAP[block.language.toLowerCase()] || "txt";
-                    filename = `generated_${Date.now()}.${ext}`;
+                    filename = `uncategorized_snippet_${Date.now()}.${ext}`;
                 }
 
                 let filepath = (isModification && currentFile) ? currentFile : (projectPath ? `${projectPath}/${filename}` : filename);
@@ -160,6 +160,11 @@ export function useChatMessages({
                 // Ensure project path is included if it's a relative path
                 if (projectPath && !filepath.includes(projectPath) && !filepath.includes(":") && !filepath.startsWith("/")) {
                     filepath = `${projectPath}/${filename}`;
+                }
+
+                // EGER AI KLASOR YAPISI VERDIYSE (örn: src/components/Header.tsx), filepath icinde projectPath ciftlenmesin
+                if (projectPath && filename.includes("/")) {
+                    filepath = `${projectPath}/${filename.replace(/^\/+/, "")}`;
                 }
 
                 let isPatch = false;
@@ -225,7 +230,10 @@ export function useChatMessages({
                             throw new Error(`Arama metni dosyada tam olarak bulunamadı.`);
                         }
                     } else {
-                        await invoke("write_file", { path: action.filePath, content: action.content });
+                        // YAPISAL MIMO (ARCHITECT) DEGISIKLIGI:
+                        // write_file yerine create_file cagiriyoruz ki Tauri arkada otomatik olarak
+                        // fs::create_dir_all(parent) calistirip klasorleri kendisi uretsin.
+                        await invoke("create_file", { path: action.filePath, content: action.content });
                         await openFile(action.filePath);
                         await addFileToIndex(action.filePath, action.content);
 
@@ -453,14 +461,14 @@ export function useChatMessages({
             let focusText = "";
 
             try {
-                // 1. AI Knowledge Base (Project Rules)
-                let projectRules = "";
+                // 1. AI Knowledge Base (Project Rules) & STRICT ARCHITECTURE ENFORCEMENT
+                let projectRules = `\n--- CRITICAL SYSTEM INSTRUCTIONS (ARCHITECT MODE) ---\n1. ASLA SADECE KOD VEYA HTML DÖNDÜRME. \n2. Kod bloklarının dil tanımının yanına MUTLAKA mutlak relative path ekle. Örnek: \`\`\`tsx:src/components/MyComponent.tsx\`\`\` veya \`\`\`html:public/index.html\`\`\`\n3. Yeni bir özellik istendiğinde, onu projenin klasör yapısına uygun yerleştir. Asla ana dizine rastgele dosya atma.\n-------------------------------------------\n`;
                 const rulesFile = fileIndex.find(f =>
                     f.path.toLowerCase().endsWith('.corexrules') ||
                     f.path.toLowerCase().endsWith('corex.md')
                 );
                 if (rulesFile) {
-                    projectRules = `\n--- PERMANENT PROJECT RULES (.corexrules) ---\n${rulesFile.content}\n-------------------------------------------\n`;
+                    projectRules += `\n--- PERMANENT PROJECT RULES (.corexrules) ---\n${rulesFile.content}\n-------------------------------------------\n`;
                 }
 
                 // 2. Global Project Map
