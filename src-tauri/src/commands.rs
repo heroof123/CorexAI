@@ -624,14 +624,15 @@ pub async fn create_embedding_bge(text: String, endpoint: Option<String>) -> Res
 // VECTOR DB / RAG COMMANDS
 // --------------------
 
-/// Searches the vector database for a given query string
+/// Searches the vector database for a given query string with optional path filtering
 #[tauri::command]
 pub async fn semantic_search(
     query: String,
     limit: Option<usize>,
+    path_filter: Option<String>,
     app: AppHandle,
 ) -> Result<serde_json::Value, String> {
-    info!("🔍 Semantic search başlatıldı: '{}'", query);
+    info!("🔍 Semantic search başlatıldı: '{}' (filter: {:?})", query, path_filter);
     
     // Get VectorDB instance from app state
     let vector_db = app.state::<crate::vector_db::VectorDB>();
@@ -639,9 +640,9 @@ pub async fn semantic_search(
     // 1. Generate embedding for query using internal fastembed
     let query_embedding = vector_db.generate_embedding(&query).await.map_err(|e| e.to_string())?;
 
-    // 2. Query VectorDB
+    // 2. Query VectorDB with path filter
     let top_k = limit.unwrap_or(5);
-    let results = vector_db.query(query_embedding, top_k).await.map_err(|e| e.to_string())?;
+    let results = vector_db.query(query_embedding, top_k, path_filter).await.map_err(|e| e.to_string())?;
 
     info!("✅ Bulunan sonuç sayısı: {}", results.len());
     

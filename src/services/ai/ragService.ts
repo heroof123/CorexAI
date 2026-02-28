@@ -15,7 +15,7 @@ export interface RAGService {
     init: (dbPath: string) => Promise<void>;
     indexFile: (filePath: string) => Promise<void>;
     indexCommit: (commit: any) => Promise<void>;
-    search: (query: string, topK?: number) => Promise<CodeChunk[]>;
+    search: (query: string, topK?: number, pathFilter?: string) => Promise<CodeChunk[]>;
     deleteIndex: (filePath: string) => Promise<void>;
 }
 
@@ -73,9 +73,13 @@ export const ragService: RAGService = {
     /**
      * Search for similar code chunks using the new native semantic search
      */
-    search: async (query: string, topK: number = 5): Promise<CodeChunk[]> => {
+    search: async (query: string, topK: number = 5, pathFilter?: string): Promise<CodeChunk[]> => {
         try {
-            const response = await invoke<{ results: CodeChunk[] }>("semantic_search", { query, limit: topK });
+            const response = await invoke<{ results: CodeChunk[] }>("semantic_search", {
+                query,
+                limit: topK,
+                pathFilter
+            });
             return response.results;
         } catch (error) {
             console.error("❌ Vector search failed:", error);

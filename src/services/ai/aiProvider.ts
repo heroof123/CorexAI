@@ -223,6 +223,31 @@ const getAgenticInstruction = (isTurkish: boolean, isMentorMode: boolean = false
     : 'You are CorexAI assistant. If the user is just chatting or saying hello, respond normally in natural language. BUT if you are generating or modifying code:\n1. **THINKING STAGE:** Before writing any code, analyze the "Project Map", "Project Rules", and "User Focus" (Cursor/Selection) provided. Explain your strategy in 1-2 sentences.\n2. **REVIEW MODE:** If a "Ghost Review" or refactor suggestion is provided, analyze the code as a senior developer. Focus on clean code principles, performance, and maintainability.\n3. **FIXING MODE:** If terminal error context is provided, prioritize fixing this specific error. Analyze the error and provide direct <<<SEARCH === >>>REPLACE updates to resolve it.\n4. **PROJECT RULES:** If a ".corexrules" or "COREX.md" file is provided, STRICTLY follow the technical rules and naming standards defined there.\n5. **FULLY FUNCTIONAL CODE:** Generated code must be INTERACTIVE.\n6. **UI/UX:** Apply modern and premium UI/UX principles.\n7. **FILE UPDATE:** Provide ONLY the exact part to change using <<<SEARCH === >>>REPLACE format. Only rewrite the full file if absolutely necessary.\n8. **NEW FILE (WARNING!):** Always provide the filename in the code block like ```html:index.html or ```javascript:app.js. FILENAME IS MANDATORY!';
 };
 
+// 🆕 Global lock to prevent parallel AI calls (crucial for local models like GGUF/LM Studio)
+let isAICalling = false;
+const aiCallQueue: Array<{ resolve: () => void, reject: (err: any) => void }> = [];
+
+function acquireLock(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!isAICalling) {
+      isAICalling = true;
+      resolve();
+    } else {
+      aiCallQueue.push({ resolve, reject });
+    }
+  });
+}
+
+function releaseLock() {
+  const next = aiCallQueue.shift();
+  if (next) {
+    // Keep isAICalling true
+    next.resolve();
+  } else {
+    isAICalling = false;
+  }
+}
+
 // 🆕 Conversation history desteği eklendi
 export async function callAI(
   message: string,
@@ -231,364 +256,369 @@ export async function callAI(
   onStreamToken?: (text: string) => void, // 🆕 Streaming callback
   isMentorMode: boolean = false
 ): Promise<string> {
-  const isTurkish = navigator.language ? navigator.language.startsWith('tr') : true;
+  await acquireLock();
+  try {
+    const isTurkish = navigator.language ? navigator.language.startsWith('tr') : true;
 
-  // Resimleri parse et (temiz mesajı al)
-  const { cleanMessage, images } = parseImagesFromMessage(message);
+    // Resimleri parse et (temiz mesajı al)
+    const { cleanMessage, images } = parseImagesFromMessage(message);
 
-  // History hazırla
-  const messages = [...(conversationHistory || [])];
+    // History hazırla
+    const messages = [...(conversationHistory || [])];
 
-  // Eğer history boşsa veya başında system prompt yoksa, agentic instruction ekle
-  const hasSystemPrompt = messages.some(m => m.role === 'system');
-  if (!hasSystemPrompt) {
-    messages.unshift({
-      role: 'system',
-      content: getAgenticInstruction(isTurkish, isMentorMode)
-    });
-  }
-
-
-  if (images.length > 0) {
-    console.log('📷 Vision mode aktif:', images.length, 'resim bulundu');
-  }
-
-  // 🔧 Model ID yoksa veya "default" ise, aktif bir model seç
-  let actualModelId = modelId;
-  if (!modelId || modelId === 'default') {
-    console.log('⚠️ Model ID belirtilmemiş, aktif model aranıyor...');
-    const providers = await loadAIProviders();
-
-    // İlk aktif provider'ın ilk aktif modelini bul
-    for (const provider of providers) {
-      if (!provider.isActive) continue;
-
-      const activeModel = provider.models.find(m => m.isActive);
-      if (activeModel) {
-        actualModelId = activeModel.id;
-        console.log(`✅ Aktif model bulundu: ${activeModel.displayName} (${actualModelId})`);
-        break;
-      }
-    }
-
-    // Hala model bulunamadıysa hata ver
-    if (!actualModelId || actualModelId === 'default') {
-      throw new Error('Aktif AI modeli bulunamadı. Lütfen AI ayarlarından bir model aktif edin.');
-    }
-  }
-
-  const result = await findActiveModel(actualModelId);
-
-  if (!result) {
-    throw new Error(`Model bulunamadı: ${actualModelId}`);
-  }
-
-  const { provider, model } = result;
-
-  console.log('🤖 AI çağrısı yapılıyor:', {
-    modelId,
-    provider: provider.name,
-    model: model.displayName,
-    baseUrl: provider.baseUrl,
-    historyLength: conversationHistory?.length || 0
-  });
-
-  // 🆕 GGUF provider kontrolü - baseUrl kontrolü yerine provider ID kontrolü
-  console.log('🔍 Provider kontrolü:', { id: provider.id, baseUrl: provider.baseUrl, name: provider.name });
-
-  if (provider.id === "gguf-direct" || provider.baseUrl === "internal://gguf") {
-    console.log('📦 GGUF provider tespit edildi, direkt GGUF çağrısı yapılıyor...');
-
-    // GGUF fonksiyonlarını import et
-    const { getGgufModelStatus } = await import('./ggufProvider');
-
-    // 🆕 GGUF model bilgisini gguf-models listesinden bul
-    const ggufModels = await storage.getSettings<any[]>('gguf-models');
-    let modelConfig = null;
-
-    if (ggufModels) {
-      // actualModelId ile eşleşen modeli bul
-      modelConfig = ggufModels.find((m: any) => m.id === actualModelId);
-    }
-
-    // Eğer listede yoksa (yeni eklenmiş olabilir) gguf-active-model'e fallback yap (geriye dönük uyumluluk)
-    if (!modelConfig) {
-      modelConfig = await storage.getSettings<any>('gguf-active-model');
-    }
-
-    // Eğer config bulunamadıysa, backend'de zaten yüklü olan modeli kullan
-    if (!modelConfig || !modelConfig.localPath) {
-      console.warn('⚠️ Config bulunamadı, backend\'deki aktif model kontrol ediliyor...');
-      const currentStatus = await getGgufModelStatus();
-      if (currentStatus.loaded && currentStatus.loaded_models.length > 0) {
-        const loadedPath = currentStatus.loaded_models[0];
-        console.log('✅ Backend\'de yüklü model kullanılıyor:', loadedPath);
-        modelConfig = {
-          localPath: loadedPath,
-          modelName: loadedPath.split(/[\\/]/).pop()?.replace('.gguf', '') || 'gguf-model',
-          contextLength: 4096
-        };
-      } else {
-        throw new Error(`❌ GGUF model yapılandırması veya yerel dosya yolu bulunamadı: ${actualModelId}`);
-      }
-    }
-
-    const config = modelConfig;
-    const modelPath = config.localPath; // Backend için asıl gerekli olan yol
-    console.log('📋 GGUF Model Path:', modelPath);
-
-    // Model durumunu kontrol et
-    const status = await getGgufModelStatus();
-    console.log('📊 GGUF Loaded Models:', status.loaded_models);
-
-    // Model yüklü değilse yüklemeyi dene (Otomatik yükleme)
-    if (!status.loaded_models.includes(modelPath)) {
-      console.warn('⚠️ GGUF model henüz yüklü değil, otomatik yükleniyor...');
-      const { loadGgufModel } = await import('./ggufProvider');
-      await loadGgufModel({
-        modelPath: modelPath,
-        contextLength: config.contextLength || 4096,
-        gpuLayers: 28, // Varsayılan GPU layer
-        temperature: 0.7,
-        maxTokens: 4096
+    // Eğer history boşsa veya başında system prompt yoksa, agentic instruction ekle
+    const hasSystemPrompt = messages.some(m => m.role === 'system');
+    if (!hasSystemPrompt) {
+      messages.unshift({
+        role: 'system',
+        content: getAgenticInstruction(isTurkish, isMentorMode)
       });
     }
 
-    console.log('✅ Model hazır, chat yapılıyor...');
 
-    // Model adından chat template'i belirle
-    const modelName = config.modelName?.toLowerCase() || '';
-    console.log('🔍 Model adı:', modelName);
-
-    // 🔥 Context length'i GGUF config'den al (Model Browser'dan ayarlanan değer)
-    let contextLength = config.contextLength || model.maxTokens || 2048;
-
-    // 🔥 CRITICAL FIX: Context length çok küçükse otomatik artır
-    // Kod yazarken minimum 4096 context gerekli
-    if (contextLength < 4096) {
-      console.warn(`⚠️ Context length çok küçük (${contextLength}), 4096'ya yükseltiliyor...`);
-      contextLength = 4096;
+    if (images.length > 0) {
+      console.log('📷 Vision mode aktif:', images.length, 'resim bulundu');
     }
 
-    console.log('📏 Context length (GGUF config):', contextLength);
-    console.log('🔍 Config details:', {
-      configContextLength: config.contextLength,
-      modelMaxTokens: model.maxTokens,
-      finalContextLength: contextLength
+    // 🔧 Model ID yoksa veya "default" ise, aktif bir model seç
+    let actualModelId = modelId;
+    if (!modelId || modelId === 'default') {
+      console.log('⚠️ Model ID belirtilmemiş, aktif model aranıyor...');
+      const providers = await loadAIProviders();
+
+      // İlk aktif provider'ın ilk aktif modelini bul
+      for (const provider of providers) {
+        if (!provider.isActive) continue;
+
+        const activeModel = provider.models.find(m => m.isActive);
+        if (activeModel) {
+          actualModelId = activeModel.id;
+          console.log(`✅ Aktif model bulundu: ${activeModel.displayName} (${actualModelId})`);
+          break;
+        }
+      }
+
+      // Hala model bulunamadıysa hata ver
+      if (!actualModelId || actualModelId === 'default') {
+        throw new Error('Aktif AI modeli bulunamadı. Lütfen AI ayarlarından bir model aktif edin.');
+      }
+    }
+
+    const result = await findActiveModel(actualModelId);
+
+    if (!result) {
+      throw new Error(`Model bulunamadı: ${actualModelId}`);
+    }
+
+    const { provider, model } = result;
+
+    console.log('🤖 AI çağrısı yapılıyor:', {
+      modelId,
+      provider: provider.name,
+      model: model.displayName,
+      baseUrl: provider.baseUrl,
+      historyLength: conversationHistory?.length || 0
     });
 
-    let fullPrompt = '';
+    // 🆕 GGUF provider kontrolü - baseUrl kontrolü yerine provider ID kontrolü
+    console.log('🔍 Provider kontrolü:', { id: provider.id, baseUrl: provider.baseUrl, name: provider.name });
 
-    // Conversation history'yi hazırla (son 4 mesaj)
-    const filteredHistory = conversationHistory
-      ? conversationHistory.filter(msg => msg.role !== 'system').slice(-4)
-      : [];
+    if (provider.id === "gguf-direct" || provider.baseUrl === "internal://gguf") {
+      console.log('📦 GGUF provider tespit edildi, direkt GGUF çağrısı yapılıyor...');
 
-    // Model tipine göre chat template seç
-    if (modelName.includes('qwen')) {
-      // Qwen2.5 ChatML format: <|im_start|>role\ncontent<|im_end|>
-      console.log('📝 Qwen chat template kullanılıyor');
+      // GGUF fonksiyonlarını import et
+      const { getGgufModelStatus } = await import('./ggufProvider');
 
-      // System prompt - Sistem diline göre
-      const systemLanguage = navigator.language || 'en';
-      const isTurkish = systemLanguage.startsWith('tr');
-      const systemMessage = isTurkish
-        ? 'Sen Corex AI, Türkçe yanıt veren bir kodlama asistanısın. Kısa ve öz yanıt ver. Selamlaşmalarda 1-2 cümle yeterli.'
-        : 'You are Corex AI, a concise coding assistant. Keep answers SHORT and direct. For greetings, 1-2 sentences max.';
+      // 🆕 GGUF model bilgisini gguf-models listesinden bul
+      const ggufModels = await storage.getSettings<any[]>('gguf-models');
+      let modelConfig = null;
 
-      fullPrompt += `<|im_start|>system\n${systemMessage}<|im_end|>\n`;
-
-      // History
-      for (const msg of filteredHistory) {
-        const role = msg.role === 'user' ? 'user' : 'assistant';
-        fullPrompt += `<|im_start|>${role}\n${msg.content}<|im_end|>\n`;
+      if (ggufModels) {
+        // actualModelId ile eşleşen modeli bul
+        modelConfig = ggufModels.find((m: any) => m.id === actualModelId);
       }
 
-      // Current message
-      fullPrompt += `<|im_start|>user\n${cleanMessage}<|im_end|>\n<|im_start|>assistant\n`;
-
-    } else if (modelName.includes('llama') && modelName.includes('3')) {
-      // Llama 3 format
-      console.log('📝 Llama 3 chat template kullanılıyor');
-
-      fullPrompt += '<|begin_of_text|>';
-
-      // System prompt - Sistem diline göre
-      const systemLanguage = navigator.language || 'en';
-      const isTurkish = systemLanguage.startsWith('tr');
-      const systemMessage = isTurkish
-        ? 'Sen Corex AI, Türkçe yanıt veren bir kodlama asistanısın. Kısa ve öz yanıt ver. Selamlaşmalarda 1-2 cümle yeterli.'
-        : 'You are Corex AI, a concise coding assistant. Keep answers SHORT and direct. For greetings, 1-2 sentences max.';
-
-      fullPrompt += `<|start_header_id|>system<|end_header_id|>\n\n${systemMessage}<|eot_id|>`;
-
-      // History
-      for (const msg of filteredHistory) {
-        const role = msg.role === 'user' ? 'user' : 'assistant';
-        fullPrompt += `<|start_header_id|>${role}<|end_header_id|>\n\n${msg.content}<|eot_id|>`;
+      // Eğer listede yoksa (yeni eklenmiş olabilir) gguf-active-model'e fallback yap (geriye dönük uyumluluk)
+      if (!modelConfig) {
+        modelConfig = await storage.getSettings<any>('gguf-active-model');
       }
 
-      // Current message
-      fullPrompt += `<|start_header_id|>user<|end_header_id|>\n\n${cleanMessage}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n`;
-
-    } else if (modelName.includes('mistral') || modelName.includes('mixtral')) {
-      // Mistral format: [INST] ... [/INST]
-      console.log('📝 Mistral chat template kullanılıyor');
-
-      // Mistral doesn't use system prompt in the same way
-      let conversationText = '';
-
-      // History
-      for (const msg of filteredHistory) {
-        if (msg.role === 'user') {
-          conversationText += `[INST] ${msg.content} [/INST] `;
+      // Eğer config bulunamadıysa, backend'de zaten yüklü olan modeli kullan
+      if (!modelConfig || !modelConfig.localPath) {
+        console.warn('⚠️ Config bulunamadı, backend\'deki aktif model kontrol ediliyor...');
+        const currentStatus = await getGgufModelStatus();
+        if (currentStatus.loaded && currentStatus.loaded_models.length > 0) {
+          const loadedPath = currentStatus.loaded_models[0];
+          console.log('✅ Backend\'de yüklü model kullanılıyor:', loadedPath);
+          modelConfig = {
+            localPath: loadedPath,
+            modelName: loadedPath.split(/[\\/]/).pop()?.replace('.gguf', '') || 'gguf-model',
+            contextLength: 4096
+          };
         } else {
-          conversationText += `${msg.content} `;
+          throw new Error(`❌ GGUF model yapılandırması veya yerel dosya yolu bulunamadı: ${actualModelId}`);
         }
       }
 
-      // Current message
-      conversationText += `[INST] ${cleanMessage} [/INST]`;
+      const config = modelConfig;
+      const modelPath = config.localPath; // Backend için asıl gerekli olan yol
+      console.log('📋 GGUF Model Path:', modelPath);
 
-      fullPrompt = conversationText;
+      // Model durumunu kontrol et
+      const status = await getGgufModelStatus();
+      console.log('📊 GGUF Loaded Models:', status.loaded_models);
 
-    } else if (modelName.includes('gemma')) {
-      // Gemma format
-      console.log('📝 Gemma chat template kullanılıyor');
-
-      fullPrompt += '<start_of_turn>user\n';
-
-      // History
-      for (const msg of filteredHistory) {
-        const role = msg.role === 'user' ? 'user' : 'model';
-        fullPrompt += `<start_of_turn>${role}\n${msg.content}<end_of_turn>\n`;
+      // Model yüklü değilse yüklemeyi dene (Otomatik yükleme)
+      if (!status.loaded_models.includes(modelPath)) {
+        console.warn('⚠️ GGUF model henüz yüklü değil, otomatik yükleniyor...');
+        const { loadGgufModel } = await import('./ggufProvider');
+        await loadGgufModel({
+          modelPath: modelPath,
+          contextLength: config.contextLength || 4096,
+          gpuLayers: 28, // Varsayılan GPU layer
+          temperature: 0.7,
+          maxTokens: 4096
+        });
       }
 
-      // Current message
-      fullPrompt += `<start_of_turn>user\n${cleanMessage}<end_of_turn>\n<start_of_turn>model\n`;
+      console.log('✅ Model hazır, chat yapılıyor...');
 
-    } else if (modelName.includes('phi')) {
-      // Phi format
-      console.log('📝 Phi chat template kullanılıyor');
+      // Model adından chat template'i belirle
+      const modelName = config.modelName?.toLowerCase() || '';
+      console.log('🔍 Model adı:', modelName);
 
-      // System prompt - Sistem diline göre
-      const systemLanguage = navigator.language || 'en';
-      const isTurkish = systemLanguage.startsWith('tr');
-      const systemMessage = isTurkish
-        ? 'Sen Corex AI, Türkçe yanıt veren bir kodlama asistanısın. Kısa ve öz yanıt ver. Selamlaşmalarda 1-2 cümle yeterli.'
-        : 'You are Corex AI, a concise coding assistant. Keep answers SHORT and direct. For greetings, 1-2 sentences max.';
+      // 🔥 Context length'i GGUF config'den al (Model Browser'dan ayarlanan değer)
+      let contextLength = config.contextLength || model.maxTokens || 2048;
 
-      fullPrompt += `<|system|>\n${systemMessage}<|end|>\n`;
-
-      // History
-      for (const msg of filteredHistory) {
-        const role = msg.role === 'user' ? 'user' : 'assistant';
-        fullPrompt += `<|${role}|>\n${msg.content}<|end|>\n`;
+      // 🔥 CRITICAL FIX: Context length çok küçükse otomatik artır
+      // Kod yazarken minimum 4096 context gerekli
+      if (contextLength < 4096) {
+        console.warn(`⚠️ Context length çok küçük (${contextLength}), 4096'ya yükseltiliyor...`);
+        contextLength = 4096;
       }
 
-      // Current message
-      fullPrompt += `<|user|>\n${cleanMessage}<|end|>\n<|assistant|>\n`;
+      console.log('📏 Context length (GGUF config):', contextLength);
+      console.log('🔍 Config details:', {
+        configContextLength: config.contextLength,
+        modelMaxTokens: model.maxTokens,
+        finalContextLength: contextLength
+      });
 
-    } else {
-      // Generic/Unknown model - simple format
-      console.log('📝 Generic chat template kullanılıyor (bilinmeyen model)');
+      let fullPrompt = '';
 
-      // System prompt - Sistem diline göre
-      const systemLanguage = navigator.language || 'en';
-      const isTurkish = systemLanguage.startsWith('tr');
-      const systemMessage = isTurkish
-        ? 'Sen Corex AI, Türkçe yanıt veren bir kodlama asistanısın. Kısa ve öz yanıt ver. Selamlaşmalarda 1-2 cümle yeterli.'
-        : 'You are Corex AI, a concise coding assistant. Keep answers SHORT and direct. For greetings, 1-2 sentences max.';
+      // Conversation history'yi hazırla (son 4 mesaj)
+      const filteredHistory = conversationHistory
+        ? conversationHistory.filter(msg => msg.role !== 'system').slice(-4)
+        : [];
 
-      fullPrompt += `${systemMessage}\n\n`;
+      // Model tipine göre chat template seç
+      if (modelName.includes('qwen')) {
+        // Qwen2.5 ChatML format: <|im_start|>role\ncontent<|im_end|>
+        console.log('📝 Qwen chat template kullanılıyor');
 
-      // History
-      for (const msg of filteredHistory) {
-        const role = msg.role === 'user' ? 'User' : 'Assistant';
-        fullPrompt += `${role}: ${msg.content}\n\n`;
+        // System prompt - Sistem diline göre
+        const systemLanguage = navigator.language || 'en';
+        const isTurkish = systemLanguage.startsWith('tr');
+        const systemMessage = isTurkish
+          ? 'Sen Corex AI, Türkçe yanıt veren bir kodlama asistanısın. Kısa ve öz yanıt ver. Selamlaşmalarda 1-2 cümle yeterli.'
+          : 'You are Corex AI, a concise coding assistant. Keep answers SHORT and direct. For greetings, 1-2 sentences max.';
+
+        fullPrompt += `<|im_start|>system\n${systemMessage}<|im_end|>\n`;
+
+        // History
+        for (const msg of filteredHistory) {
+          const role = msg.role === 'user' ? 'user' : 'assistant';
+          fullPrompt += `<|im_start|>${role}\n${msg.content}<|im_end|>\n`;
+        }
+
+        // Current message
+        fullPrompt += `<|im_start|>user\n${cleanMessage}<|im_end|>\n<|im_start|>assistant\n`;
+
+      } else if (modelName.includes('llama') && modelName.includes('3')) {
+        // Llama 3 format
+        console.log('📝 Llama 3 chat template kullanılıyor');
+
+        fullPrompt += '<|begin_of_text|>';
+
+        // System prompt - Sistem diline göre
+        const systemLanguage = navigator.language || 'en';
+        const isTurkish = systemLanguage.startsWith('tr');
+        const systemMessage = isTurkish
+          ? 'Sen Corex AI, Türkçe yanıt veren bir kodlama asistanısın. Kısa ve öz yanıt ver. Selamlaşmalarda 1-2 cümle yeterli.'
+          : 'You are Corex AI, a concise coding assistant. Keep answers SHORT and direct. For greetings, 1-2 sentences max.';
+
+        fullPrompt += `<|start_header_id|>system<|end_header_id|>\n\n${systemMessage}<|eot_id|>`;
+
+        // History
+        for (const msg of filteredHistory) {
+          const role = msg.role === 'user' ? 'user' : 'assistant';
+          fullPrompt += `<|start_header_id|>${role}<|end_header_id|>\n\n${msg.content}<|eot_id|>`;
+        }
+
+        // Current message
+        fullPrompt += `<|start_header_id|>user<|end_header_id|>\n\n${cleanMessage}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n`;
+
+      } else if (modelName.includes('mistral') || modelName.includes('mixtral')) {
+        // Mistral format: [INST] ... [/INST]
+        console.log('📝 Mistral chat template kullanılıyor');
+
+        // Mistral doesn't use system prompt in the same way
+        let conversationText = '';
+
+        // History
+        for (const msg of filteredHistory) {
+          if (msg.role === 'user') {
+            conversationText += `[INST] ${msg.content} [/INST] `;
+          } else {
+            conversationText += `${msg.content} `;
+          }
+        }
+
+        // Current message
+        conversationText += `[INST] ${cleanMessage} [/INST]`;
+
+        fullPrompt = conversationText;
+
+      } else if (modelName.includes('gemma')) {
+        // Gemma format
+        console.log('📝 Gemma chat template kullanılıyor');
+
+        fullPrompt += '<start_of_turn>user\n';
+
+        // History
+        for (const msg of filteredHistory) {
+          const role = msg.role === 'user' ? 'user' : 'model';
+          fullPrompt += `<start_of_turn>${role}\n${msg.content}<end_of_turn>\n`;
+        }
+
+        // Current message
+        fullPrompt += `<start_of_turn>user\n${cleanMessage}<end_of_turn>\n<start_of_turn>model\n`;
+
+      } else if (modelName.includes('phi')) {
+        // Phi format
+        console.log('📝 Phi chat template kullanılıyor');
+
+        // System prompt - Sistem diline göre
+        const systemLanguage = navigator.language || 'en';
+        const isTurkish = systemLanguage.startsWith('tr');
+        const systemMessage = isTurkish
+          ? 'Sen Corex AI, Türkçe yanıt veren bir kodlama asistanısın. Kısa ve öz yanıt ver. Selamlaşmalarda 1-2 cümle yeterli.'
+          : 'You are Corex AI, a concise coding assistant. Keep answers SHORT and direct. For greetings, 1-2 sentences max.';
+
+        fullPrompt += `<|system|>\n${systemMessage}<|end|>\n`;
+
+        // History
+        for (const msg of filteredHistory) {
+          const role = msg.role === 'user' ? 'user' : 'assistant';
+          fullPrompt += `<|${role}|>\n${msg.content}<|end|>\n`;
+        }
+
+        // Current message
+        fullPrompt += `<|user|>\n${cleanMessage}<|end|>\n<|assistant|>\n`;
+
+      } else {
+        // Generic/Unknown model - simple format
+        console.log('📝 Generic chat template kullanılıyor (bilinmeyen model)');
+
+        // System prompt - Sistem diline göre
+        const systemLanguage = navigator.language || 'en';
+        const isTurkish = systemLanguage.startsWith('tr');
+        const systemMessage = isTurkish
+          ? 'Sen Corex AI, Türkçe yanıt veren bir kodlama asistanısın. Kısa ve öz yanıt ver. Selamlaşmalarda 1-2 cümle yeterli.'
+          : 'You are Corex AI, a concise coding assistant. Keep answers SHORT and direct. For greetings, 1-2 sentences max.';
+
+        fullPrompt += `${systemMessage}\n\n`;
+
+        // History
+        for (const msg of filteredHistory) {
+          const role = msg.role === 'user' ? 'User' : 'Assistant';
+          fullPrompt += `${role}: ${msg.content}\n\n`;
+        }
+
+        // Current message
+        fullPrompt += `User: ${cleanMessage}\n\nAssistant:`;
       }
 
-      // Current message
-      fullPrompt += `User: ${cleanMessage}\n\nAssistant:`;
+      console.log('🔵 GGUF chat başlatılıyor, prompt uzunluğu:', fullPrompt.length);
+      console.log('📝 Prompt preview:', fullPrompt.substring(0, 300));
+
+      // 🆕 GGUF calls with timeout (FIX-25)
+      const ggufTimeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('GGUF yanıt vermiyor (300 saniye)')), 300000);
+      });
+
+      // Chat yap - maxTokens generation için (üretilecek token sayısı)
+      // Context length zaten model yüklenirken ayarlandı
+      // 🔥 FIXED: Minimum 2048 token garanti et, kod yazarken yeterli olsun
+      const generationMaxTokens = Math.max(Math.min(contextLength / 2, 8192), 2048); // Min 2048, max 8192
+      console.log('🎯 Generation max tokens:', generationMaxTokens, '(context:', contextLength, ')');
+
+      // 🆕 Streaming desteği
+      if (onStreamToken) {
+        const { chatWithChunkedStreaming } = await import('./streamingProvider');
+        const streamPromise = chatWithChunkedStreaming(
+          modelPath,
+          fullPrompt,
+          generationMaxTokens,
+          model.temperature || 0.7,
+          {
+            onToken: (delta) => {
+              onStreamToken(delta);
+            },
+            onComplete: (text: string) => console.log('✅ Streaming tamamlandı:', text.length, 'karakter')
+          }
+        );
+        const response = await Promise.race([streamPromise, ggufTimeoutPromise]);
+        return sanitizeGgufResponse(response);
+      }
+
+      // Normal (non-streaming) mode
+      const chatPromise = (async () => {
+        const { chatWithGgufModel } = await import('./ggufProvider');
+        return await chatWithGgufModel(
+          modelPath,
+          fullPrompt,
+          generationMaxTokens,
+          model.temperature || 0.7
+        );
+      })();
+
+      const response = await Promise.race([chatPromise, ggufTimeoutPromise]);
+      const sanitized = sanitizeGgufResponse(response);
+      console.log('✅ GGUF response alındı ve sanitize edildi, uzunluk:', sanitized.length);
+      return sanitized;
     }
 
-    console.log('🔵 GGUF chat başlatılıyor, prompt uzunluğu:', fullPrompt.length);
-    console.log('📝 Prompt preview:', fullPrompt.substring(0, 300));
-
-    // 🆕 GGUF calls with timeout (FIX-25)
-    const ggufTimeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('GGUF yanıt vermiyor (300 saniye)')), 300000);
+    // Normal provider (LM Studio, Ollama, vb.)
+    // Timeout ile AI çağrısı (60 saniye - daha uzun cevaplar için)
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('AI isteği zaman aşımına uğradı (60 saniye)')), 60000);
     });
 
-    // Chat yap - maxTokens generation için (üretilecek token sayısı)
-    // Context length zaten model yüklenirken ayarlandı
-    // 🔥 FIXED: Minimum 2048 token garanti et, kod yazarken yeterli olsun
-    const generationMaxTokens = Math.max(Math.min(contextLength / 2, 8192), 2048); // Min 2048, max 8192
-    console.log('🎯 Generation max tokens:', generationMaxTokens, '(context:', contextLength, ')');
+    // Temperature'ı biraz artır (daha yaratıcı ve eksiksiz cevaplar için)
+    const adjustedTemperature = model.temperature ? Math.min(model.temperature + 0.1, 0.9) : 0.7;
 
-    // 🆕 Streaming desteği
-    if (onStreamToken) {
-      const { chatWithChunkedStreaming } = await import('./streamingProvider');
-      const streamPromise = chatWithChunkedStreaming(
-        modelPath,
-        fullPrompt,
-        generationMaxTokens,
-        model.temperature || 0.7,
-        {
-          onToken: (delta) => {
-            onStreamToken(delta);
-          },
-          onComplete: (text: string) => console.log('✅ Streaming tamamlandı:', text.length, 'karakter')
-        }
-      );
-      const response = await Promise.race([streamPromise, ggufTimeoutPromise]);
-      return sanitizeGgufResponse(response);
-    }
+    // Max tokens'ı artır (daha uzun cevaplar için)
+    const adjustedMaxTokens = model.maxTokens ? Math.max(model.maxTokens, 8192) : 8192;
 
-    // Normal (non-streaming) mode
-    const chatPromise = (async () => {
-      const { chatWithGgufModel } = await import('./ggufProvider');
-      return await chatWithGgufModel(
-        modelPath,
-        fullPrompt,
-        generationMaxTokens,
-        model.temperature || 0.7
-      );
-    })();
+    const aiPromise = invoke<string>("chat_with_dynamic_ai", {
+      message: cleanMessage,
+      conversationHistory: messages, // 🔥 Güncellenmiş history kullan
+      providerConfig: {
+        base_url: provider.baseUrl,
+        host: provider.host || null,
+        port: provider.port || null,
+        api_key: provider.apiKey || null,
+        model_name: model.name,
+        temperature: adjustedTemperature,
+        max_tokens: adjustedMaxTokens
+      }
+    });
 
-    const response = await Promise.race([chatPromise, ggufTimeoutPromise]);
-    const sanitized = sanitizeGgufResponse(response);
-    console.log('✅ GGUF response alındı ve sanitize edildi, uzunluk:', sanitized.length);
-    return sanitized;
+    return await Promise.race([aiPromise, timeoutPromise]);
+  } finally {
+    releaseLock();
   }
-
-  // Normal provider (LM Studio, Ollama, vb.)
-  // Timeout ile AI çağrısı (60 saniye - daha uzun cevaplar için)
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error('AI isteği zaman aşımına uğradı (60 saniye)')), 60000);
-  });
-
-  // Temperature'ı biraz artır (daha yaratıcı ve eksiksiz cevaplar için)
-  const adjustedTemperature = model.temperature ? Math.min(model.temperature + 0.1, 0.9) : 0.7;
-
-  // Max tokens'ı artır (daha uzun cevaplar için)
-  const adjustedMaxTokens = model.maxTokens ? Math.max(model.maxTokens, 8192) : 8192;
-
-  const aiPromise = invoke<string>("chat_with_dynamic_ai", {
-    message: cleanMessage,
-    conversationHistory: messages, // 🔥 Güncellenmiş history kullan
-    providerConfig: {
-      base_url: provider.baseUrl,
-      host: provider.host || null,
-      port: provider.port || null,
-      api_key: provider.apiKey || null,
-      model_name: model.name,
-      temperature: adjustedTemperature,
-      max_tokens: adjustedMaxTokens
-    }
-  });
-
-  return await Promise.race([aiPromise, timeoutPromise]);
 }
 
 // Provider bağlantısını test et

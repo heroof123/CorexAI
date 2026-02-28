@@ -113,6 +113,33 @@ export function useAppLogic() {
         selection: editor.selection,
     });
 
+    // 🆕 Active Model Indicator
+    const [activeModelName, setActiveModelName] = useState<string | null>(null);
+
+    useEffect(() => {
+        const updateModel = () => {
+            const ggufConfig = localStorage.getItem('gguf-active-model');
+            if (ggufConfig) {
+                try {
+                    const parsed = JSON.parse(ggufConfig);
+                    setActiveModelName(parsed.modelName || 'Local GGUF');
+                } catch (e) {
+                    setActiveModelName(null);
+                }
+            } else {
+                setActiveModelName(null);
+            }
+        };
+
+        updateModel();
+        window.addEventListener('storage', updateModel);
+        window.addEventListener('gguf-model-loaded', updateModel);
+        return () => {
+            window.removeEventListener('storage', updateModel);
+            window.removeEventListener('gguf-model-loaded', updateModel);
+        };
+    }, []);
+
     // 🤖 Connect Autonomous Agent to Chat
     useEffect(() => {
         const callback = (msg: any) => {
@@ -909,6 +936,7 @@ export function useAppLogic() {
         notification,
         setNotification,
         commands,
+        activeModelName, // Added activeModelName to the return object
         shortcuts
     };
 }

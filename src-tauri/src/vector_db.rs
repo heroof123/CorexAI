@@ -215,16 +215,26 @@ impl VectorDB {
         Ok(())
     }
     
-    /// Query the vector database for similar code chunks
+    /// Query the vector database for similar code chunks with optional path filtering
     pub async fn query(
         &self,
         query_embedding: Vec<f32>,
         top_k: usize,
+        path_filter: Option<String>,
     ) -> Result<Vec<CodeChunk>, Box<dyn Error>> {
         let table = self.get_table().await?;
         
         // Perform vector similarity search
-        let query = table.vector_search(query_embedding)?;
+        let mut query = table.vector_search(query_embedding)?;
+        
+        // Apply path filter if provided (FIX-Project-Scoping)
+        if let Some(filter) = path_filter {
+            // Escape single quotes in path for SQL
+            let safe_filter = filter.replace('\'', "''").replace('\\', "/");
+            // LanceDB supports SQL-like filters. We want files that start with the project path.
+            query = query.only_if(format!("file_path LIKE '{}%'", safe_filter))?;
+        }
+
         let mut stream = query.limit(top_k).execute().await?;
         let mut chunks = Vec::new();
         

@@ -1,7 +1,7 @@
 // hooks/useProjectManager.ts
 // Proje açma, indexleme ve dosya yönetimi sorumluluklarını taşır
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { createEmbedding } from "../services/embedding";
@@ -207,9 +207,22 @@ export function useProjectManager({
 
       const projectType = getProjectTypeFromFiles(files);
       await addRecentProject(path, files.length, projectType);
+
+      // Save for persistence
+      localStorage.setItem("corex_last_project_path", path);
     },
     [files, loadOrIndexProject, onNotification]
   );
+
+  // 🆕 Auto-load last project on mount (FIX-SideEffects)
+  useEffect(() => {
+    const lastPath = localStorage.getItem("corex_last_project_path");
+    if (lastPath) {
+      console.log("♻️ Otomatik proje yükleniyor:", lastPath);
+      // setProjectPath(lastPath) yaparken handleProjectSelect içindeki servislere de gitmeli
+      handleProjectSelect(lastPath);
+    }
+  }, []); // Only once on mount
 
   const handleOpenProject = useCallback(async () => {
     try {
@@ -240,7 +253,10 @@ export function useProjectManager({
       if (!parentDir || typeof parentDir !== "string") return;
 
       // 2. Yeni proje klasör yolunu oluştur
-      const newProjectPath = `${parentDir}/${projectName.trim()}`.replace(/\\/g, '/');
+      const separator = parentDir.includes('\\') ? '\\' : '/';
+      // FIX-Path: Normalize paths to use forward slashes for internal consistency
+      const rawPath = `${parentDir}${separator}${projectName.trim()}`;
+      const newProjectPath = rawPath.replace(/\\/g, '/');
 
       // 3. Klasörü oluştur (Rust tarafında invoke)
       try {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 
 interface Breakpoint {
   id: string;
@@ -141,40 +142,35 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
   const runTests = async () => {
     setIsRunningTests(true);
     setTestResults([]);
-    setConsoleOutput(prev => [...prev, '🧪 Testler çalıştırılıyor...']);
+    setConsoleOutput(prev => [...prev, '🧪 Testler çalıştırılıyor, lütfen bekleyin...']);
 
     try {
-      // Mock test execution
-      const mockTests: TestResult[] = [
-        { id: '1', name: 'should render correctly', status: 'running', file: 'App.test.tsx' },
-        { id: '2', name: 'should handle user input', status: 'running', file: 'Input.test.tsx' },
-        { id: '3', name: 'should validate form', status: 'running', file: 'Form.test.tsx' }
-      ];
+      const result: any = await invoke('test_project', { path: projectPath });
 
-      setTestResults(mockTests);
+      const newTestResult: TestResult = {
+        id: Date.now().toString(),
+        name: 'Proje Build & Test',
+        status: result.success ? 'passed' : 'failed',
+        file: projectPath.split(/[/\\]/).pop() || 'Project Root',
+        error: result.stderr || undefined
+      };
 
-      // Simulate test completion
-      for (let i = 0; i < mockTests.length; i++) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      setTestResults([newTestResult]);
 
-        setTestResults(prev => prev.map((test, index) => {
-          if (index === i) {
-            const passed = Math.random() > 0.3;
-            return {
-              ...test,
-              status: passed ? 'passed' : 'failed',
-              duration: Math.floor(Math.random() * 500) + 50,
-              error: passed ? undefined : 'Expected true but got false'
-            };
-          }
-          return test;
-        }));
-      }
-
-      const passedCount = testResults.filter(t => t.status === 'passed').length;
-      setConsoleOutput(prev => [...prev, `✅ Testler tamamlandı: ${passedCount}/${mockTests.length} başarılı`]);
+      setConsoleOutput(prev => [
+        ...prev,
+        result.success ? '✅ Testler / Build başarılı!' : '❌ Testler / Build başarısız!',
+        ...(result.stdout ? result.stdout.split('\n') : [])
+      ]);
     } catch (error) {
       setConsoleOutput(prev => [...prev, `❌ Test hatası: ${error}`]);
+      setTestResults([{
+        id: 'error',
+        name: 'Test Yürütücü',
+        status: 'failed',
+        file: 'Sistem',
+        error: String(error)
+      }]);
     } finally {
       setIsRunningTests(false);
     }

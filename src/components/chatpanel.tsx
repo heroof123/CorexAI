@@ -9,6 +9,7 @@ import { TaskProgressCard } from "./TaskProgressCard";
 import DiffViewer from "./Diffviewer";
 import SmartSuggestions from "./SmartSuggestions";
 import LivePreview from "./LivePreview";
+import { githubAgent, GithubAgentTask } from "../services/githubAgent";
 
 interface ChatPanelProps {
   messages: Message[];
@@ -32,6 +33,7 @@ interface ChatPanelProps {
   modelName?: string;
   isMentorMode?: boolean;
   onMentorModeToggle?: (enabled: boolean) => void;
+  projectPath?: string;
 }
 
 // ─── Yardımcı: panoya kopyala ────────────────────────────────────────────────
@@ -1224,8 +1226,10 @@ export default function ChatPanel({
   modelName = "Corex AI",
   isMentorMode = false,
   onMentorModeToggle,
+  projectPath,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
+  const [githubTask, setGithubTask] = useState<GithubAgentTask | null>(null);
   const [isPendingExpanded, setIsPendingExpanded] = useState(true);
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [ratings, setRatings] = useState<Record<string, "up" | "down">>({});
@@ -1314,6 +1318,36 @@ export default function ChatPanel({
 
   const handleSend = async () => {
     if (!input.trim() || isLoading || isIndexing) return;
+
+    if (input.startsWith("/github ") && projectPath) {
+      const url = input.replace("/github ", "").trim();
+      githubAgent.runIssueToPRWorkflow(url, projectPath, (task) => {
+        setGithubTask({ ...task });
+      });
+      setInput("");
+      return;
+    }
+
+    if (input.startsWith("/analyze-github") && projectPath) {
+      githubAgent.searchAndAnalyzeRequests(projectContext?.name || "Corex AI", projectPath, (task) => {
+        setGithubTask({ ...task });
+      });
+      setInput("");
+      return;
+    }
+
+    // Doğal dil tetikleyicisi: "github", "özellik", "varmı/var mı", "araştır" gibi anahtar kelimeler
+    const lowerInput = input.toLowerCase();
+    const isGithubQuery = lowerInput.includes("github") &&
+      (lowerInput.includes("özellik") || lowerInput.includes("varmı") || lowerInput.includes("var mı") || lowerInput.includes("araştır"));
+
+    if (isGithubQuery && projectPath) {
+      githubAgent.searchAndAnalyzeRequests(projectContext?.name || "Corex AI", projectPath, (task) => {
+        setGithubTask({ ...task });
+      });
+      // Sadece tetikliyoruz, mesajı da göndermeye devam edebiliriz veya engelleyebiliriz.
+      // Kullanıcının sorusuna AI da yanıt versin diye devam ettiriyoruz.
+    }
 
     let messageToSend = input;
     let systemContext = "";
@@ -1540,6 +1574,43 @@ export default function ChatPanel({
                   <span className="text-white text-[10px]">{modelName} düşünüyor...</span>
                 </div>
               </div>
+            </div>
+          )}
+          {githubTask && (
+            <div className="p-3 bg-neutral-900/50 border border-blue-500/30 rounded-lg my-2 font-mono">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold text-blue-400">🐙 GITHUB AGENT</span>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded ${githubTask.status === 'done' ? 'bg-green-600' : githubTask.status === 'failed' ? 'bg-red-600' : 'bg-blue-600'} text-white`}>
+                  {githubTask.status.toUpperCase()}
+                </span>
+              </div>
+              <div className="max-h-32 overflow-y-auto text-[9px] text-neutral-300 space-y-1">
+                {githubTask.logs.map((log, i) => (
+                  <div key={i}>{log}</div>
+                ))}
+              </div>
+              {githubTask.suggestions && githubTask.suggestions.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <div className="text-[9px] text-blue-400 font-bold mb-1">💡 Önerilen Özellikler:</div>
+                  {githubTask.suggestions.map((suggestion, i) => (
+                    <button
+                      key={i}
+                      onClick={() => onSendMessage(`Lütfen şu özelliği implement et: ${suggestion}`)}
+                      className="w-full text-left px-2 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-[9px] text-blue-300 rounded border border-blue-500/20"
+                    >
+                      + {suggestion}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {githubTask.status === 'done' && (
+                <button
+                  onClick={() => setGithubTask(null)}
+                  className="mt-2 w-full py-1 bg-neutral-800 hover:bg-neutral-700 text-[10px] text-neutral-400 rounded"
+                >
+                  Kapat
+                </button>
+              )}
             </div>
           )}
         </div>

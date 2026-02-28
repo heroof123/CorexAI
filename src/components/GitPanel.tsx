@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 
 interface GitStatus {
   branch: string;
@@ -45,23 +46,71 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  const runGitCommand = async (args: string[]) => {
+    try {
+      const result: any = await invoke('execute_command', {
+        command: 'git',
+        args: args,
+        cwd: projectPath
+      });
+      if (result.code !== 0) {
+        console.warn(`Git warning (${args.join(' ')}):`, result.stderr);
+      }
+      return result.stdout as string;
+    } catch (e) {
+      console.error('Git command error:', e);
+      throw e;
+    }
+  };
+
   // Load git status
   const loadGitStatus = async () => {
     setIsLoading(true);
     try {
-      // Mock git status - in real implementation, this would call git commands
-      const mockStatus: GitStatus = {
-        branch: 'main',
-        ahead: 2,
+      const output = await runGitCommand(['status', '--porcelain', '-b']);
+      const lines = output.trim().split('\n');
+
+      const newStatus: GitStatus = {
+        branch: '',
+        ahead: 0,
         behind: 0,
-        staged: ['src/App.tsx', 'package.json'],
-        modified: ['src/components/GitPanel.tsx', 'README.md'],
-        untracked: ['src/components/NewComponent.tsx'],
+        staged: [],
+        modified: [],
+        untracked: [],
         conflicted: []
       };
-      
-      setGitStatus(mockStatus);
-      setCurrentBranch(mockStatus.branch);
+
+      for (const line of lines) {
+        if (!line) continue;
+        if (line.startsWith('##')) {
+          const branchMatch = line.match(/^##\s+([^.\s]+)/);
+          if (branchMatch) newStatus.branch = branchMatch[1];
+
+          const aheadMatch = line.match(/ahead\s+(\d+)/);
+          if (aheadMatch) newStatus.ahead = parseInt(aheadMatch[1], 10);
+
+          const behindMatch = line.match(/behind\s+(\d+)/);
+          if (behindMatch) newStatus.behind = parseInt(behindMatch[1], 10);
+        } else {
+          const code = line.substring(0, 2);
+          const file = line.substring(3).trim().replace(/^"|"$/g, "");
+          if (code === '??') {
+            newStatus.untracked.push(file);
+          } else if (code.includes('U') || code === 'DD' || code === 'AA') {
+            newStatus.conflicted.push(file);
+          } else {
+            if (code[0] !== ' ' && code[0] !== '?') {
+              newStatus.staged.push(file);
+            }
+            if (code[1] !== ' ' && code[1] !== '?') {
+              newStatus.modified.push(file);
+            }
+          }
+        }
+      }
+
+      setGitStatus(newStatus);
+      setCurrentBranch(newStatus.branch);
     } catch (error) {
       console.error('Git status error:', error);
     } finally {
@@ -72,32 +121,13 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
   // Load git history
   const loadGitHistory = async () => {
     try {
-      // Mock git log - in real implementation, this would call git log
-      const mockCommits: GitCommit[] = [
-        {
-          hash: 'a1b2c3d',
-          message: 'Add git integration panel',
-          author: 'Developer',
-          date: '2024-01-19 10:30',
-          files: ['src/components/GitPanel.tsx']
-        },
-        {
-          hash: 'e4f5g6h',
-          message: 'Implement theme system',
-          author: 'Developer',
-          date: '2024-01-19 09:15',
-          files: ['src/contexts/ThemeContext.tsx', 'src/components/ThemeSelector.tsx']
-        },
-        {
-          hash: 'i7j8k9l',
-          message: 'Initial commit',
-          author: 'Developer',
-          date: '2024-01-18 14:00',
-          files: ['package.json', 'src/App.tsx', 'README.md']
-        }
-      ];
-      
-      setCommits(mockCommits);
+      const output = await runGitCommand(['log', '-n', '50', '--pretty=format:%h|%s|%an|%ad', '--date=short']);
+      const logs = output.trim().split('\n').filter(Boolean);
+      const commitsData: GitCommit[] = logs.map(line => {
+        const [hash, message, author, date] = line.split('|');
+        return { hash, message, author, date, files: [] };
+      });
+      setCommits(commitsData);
     } catch (error) {
       console.error('Git history error:', error);
     }
@@ -106,9 +136,9 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
   // Load branches
   const loadBranches = async () => {
     try {
-      // Mock branches - in real implementation, this would call git branch
-      const mockBranches = ['main', 'feature/git-integration', 'develop', 'hotfix/bug-fix'];
-      setBranches(mockBranches);
+      const output = await runGitCommand(['branch', '--format=%(refname:short)']);
+      const branchList = output.trim().split('\n').filter(Boolean);
+      setBranches(branchList);
     } catch (error) {
       console.error('Git branches error:', error);
     }
@@ -122,65 +152,34 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
     }
   }, [projectPath]);
 
-  const handleStageFile = (filePath: string) => {
-    if (!gitStatus) return;
-    
-    setGitStatus(prev => {
-      if (!prev) return prev;
-      
-      const newModified = prev.modified.filter(f => f !== filePath);
-      const newUntracked = prev.untracked.filter(f => f !== filePath);
-      const newStaged = [...prev.staged, filePath];
-      
-      return {
-        ...prev,
-        modified: newModified,
-        untracked: newUntracked,
-        staged: newStaged
-      };
-    });
+  const handleStageFile = async (filePath: string) => {
+    try {
+      await runGitCommand(['add', filePath]);
+      loadGitStatus();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  const handleUnstageFile = (filePath: string) => {
-    if (!gitStatus) return;
-    
-    setGitStatus(prev => {
-      if (!prev) return prev;
-      
-      const newStaged = prev.staged.filter(f => f !== filePath);
-      const newModified = [...prev.modified, filePath];
-      
-      return {
-        ...prev,
-        staged: newStaged,
-        modified: newModified
-      };
-    });
+  const handleUnstageFile = async (filePath: string) => {
+    try {
+      await runGitCommand(['restore', '--staged', filePath]);
+      loadGitStatus();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const handleCommit = async () => {
     if (!commitMessage.trim() || !gitStatus?.staged.length) return;
-    
     setIsLoading(true);
     try {
-      // Mock commit - in real implementation, this would call git commit
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const newCommit: GitCommit = {
-        hash: Math.random().toString(36).substr(2, 7),
-        message: commitMessage,
-        author: 'Developer',
-        date: new Date().toLocaleString(),
-        files: [...gitStatus.staged]
-      };
-      
-      setCommits(prev => [newCommit, ...prev]);
-      setGitStatus(prev => prev ? { ...prev, staged: [] } : prev);
+      await runGitCommand(['commit', '-m', commitMessage]);
       setCommitMessage('');
-      
-      alert('Commit başarılı!');
+      loadGitStatus();
+      loadGitHistory();
     } catch (error) {
-      alert('Commit hatası: ' + error);
+      alert('Commit error: ' + error);
     } finally {
       setIsLoading(false);
     }
@@ -189,13 +188,10 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
   const handlePush = async () => {
     setIsLoading(true);
     try {
-      // Mock push - in real implementation, this would call git push
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      setGitStatus(prev => prev ? { ...prev, ahead: 0 } : prev);
-      alert('Push başarılı!');
+      await runGitCommand(['push']);
+      loadGitStatus();
     } catch (error) {
-      alert('Push hatası: ' + error);
+      alert('Push error: ' + error);
     } finally {
       setIsLoading(false);
     }
@@ -204,14 +200,11 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
   const handlePull = async () => {
     setIsLoading(true);
     try {
-      // Mock pull - in real implementation, this would call git pull
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      setGitStatus(prev => prev ? { ...prev, behind: 0 } : prev);
-      alert('Pull başarılı!');
+      await runGitCommand(['pull']);
+      loadGitStatus();
       loadGitHistory();
     } catch (error) {
-      alert('Pull hatası: ' + error);
+      alert('Pull error: ' + error);
     } finally {
       setIsLoading(false);
     }
@@ -220,14 +213,12 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
   const handleBranchSwitch = async (branchName: string) => {
     setIsLoading(true);
     try {
-      // Mock branch switch - in real implementation, this would call git checkout
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      await runGitCommand(['checkout', branchName]);
       setCurrentBranch(branchName);
-      setGitStatus(prev => prev ? { ...prev, branch: branchName } : prev);
-      alert(`Branch değiştirildi: ${branchName}`);
+      loadGitStatus();
+      loadGitHistory();
     } catch (error) {
-      alert('Branch değiştirme hatası: ' + error);
+      alert('Branch switch error: ' + error);
     } finally {
       setIsLoading(false);
     }
@@ -256,7 +247,7 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
             </span>
           )}
         </div>
-        
+
         <div className="flex items-center gap-2">
           {gitStatus && gitStatus.ahead > 0 && (
             <button
@@ -267,7 +258,7 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
               ⬆️ Push ({gitStatus.ahead})
             </button>
           )}
-          
+
           {gitStatus && gitStatus.behind > 0 && (
             <button
               onClick={handlePull}
@@ -277,7 +268,7 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
               ⬇️ Pull ({gitStatus.behind})
             </button>
           )}
-          
+
           <button
             onClick={loadGitStatus}
             disabled={isLoading}
@@ -310,11 +301,10 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`px-3 py-1 text-xs border-r border-[var(--color-border)] transition-colors ${
-              activeTab === tab.id
+            className={`px-3 py-1 text-xs border-r border-[var(--color-border)] transition-colors ${activeTab === tab.id
                 ? 'bg-[var(--color-primary)] text-white'
                 : 'hover:bg-[var(--color-hover)]'
-            }`}
+              }`}
           >
             {tab.label}
           </button>
@@ -457,7 +447,7 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
         {activeTab === 'history' && (
           <div className="p-4">
             <h4 className="text-sm font-medium mb-4">📚 Commit History</h4>
-            
+
             {commits.length === 0 ? (
               <div className="text-center text-[var(--color-textSecondary)] py-8">
                 <div className="text-2xl mb-2">📚</div>
@@ -478,12 +468,12 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
                         {commit.date}
                       </span>
                     </div>
-                    
+
                     <div className="text-sm font-medium mb-1">{commit.message}</div>
                     <div className="text-xs text-[var(--color-textSecondary)] mb-2">
                       👤 {commit.author}
                     </div>
-                    
+
                     <div className="flex flex-wrap gap-1">
                       {commit.files.map(file => (
                         <span
@@ -505,16 +495,15 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
         {activeTab === 'branches' && (
           <div className="p-4">
             <h4 className="text-sm font-medium mb-4">🌿 Branches</h4>
-            
+
             <div className="space-y-2">
               {branches.map(branch => (
                 <div
                   key={branch}
-                  className={`flex items-center justify-between p-2 rounded cursor-pointer transition-colors ${
-                    branch === currentBranch
+                  className={`flex items-center justify-between p-2 rounded cursor-pointer transition-colors ${branch === currentBranch
                       ? 'bg-[var(--color-primary)]/20 border border-[var(--color-primary)]'
                       : 'bg-[var(--color-background)] border border-[var(--color-border)] hover:border-[var(--color-primary)]'
-                  }`}
+                    }`}
                   onClick={() => branch !== currentBranch && handleBranchSwitch(branch)}
                 >
                   <div className="flex items-center gap-2">
@@ -526,7 +515,7 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
                       <span className="text-xs text-[var(--color-primary)]">(current)</span>
                     )}
                   </div>
-                  
+
                   {branch !== currentBranch && (
                     <button className="text-xs text-[var(--color-primary)] hover:underline">
                       Switch
@@ -535,7 +524,7 @@ export default function GitPanel({ projectPath, onFileSelect, onClose }: GitPane
                 </div>
               ))}
             </div>
-            
+
             <button className="mt-4 w-full py-2 bg-[var(--color-secondary)] text-white rounded hover:opacity-80 transition-opacity text-sm">
               ➕ New Branch
             </button>

@@ -14,8 +14,7 @@ import {
     requiresApproval,
     getAutonomyConfig
 } from "../services/ai";
-import { smartContextBuilder } from "../services/smartContextBuilder";
-import { createEmbedding } from "../services/embedding";
+import { ragService } from "../services/ai/ragService";
 import { saveConversation, getConversation } from "../services/db";
 import { Message, CodeAction, FileIndex } from "../types/index";
 import { CoreMessage } from "../core/protocol";
@@ -446,7 +445,7 @@ export function useChatMessages({
 
                 try {
                     const { SingularityService } = await import("../services/singularity");
-                    const response = await SingularityService.selfModify(query, fileIndex);
+                    const response = await SingularityService.selfModify(query, fileIndex, projectPath);
                     setMessages((prev) => prev.map(msg => msg.id === assistantMsgId ? { ...msg, content: response } : msg));
                 } catch (e) {
                     setMessages((prev) => prev.map(msg => msg.id === assistantMsgId ? { ...msg, content: `❌ Hata: ${e}` } : msg));
@@ -487,16 +486,11 @@ export function useChatMessages({
                     focusText += `------------------\n`;
                 }
 
-                // 4. Calculate Embedding for Query
-                const queryEmbedding = await createEmbedding(userMessage);
-
-                // Build Smart Context
-                const contextFiles = await smartContextBuilder.buildContext(
+                // Build Smart Context (FIX-Project-Scoping)
+                const contextFiles = await ragService.search(
                     userMessage,
-                    queryEmbedding,
-                    fileIndex,
-                    currentFile,
-                    { maxFiles: 5, maxTokens: 12000 }
+                    5,
+                    projectPath
                 );
 
                 if (contextFiles && contextFiles.length > 0) {
@@ -581,7 +575,7 @@ export function useChatMessages({
                         timestamp: Date.now()
                     }]);
 
-                    const toolResult = await executeTool(currentToolCall.toolName, currentToolCall.parameters);
+                    const toolResult = await executeTool(currentToolCall.toolName, currentToolCall.parameters, projectPath);
 
                     // Update tool execution status
                     setMessages(prev => prev.map(msg =>

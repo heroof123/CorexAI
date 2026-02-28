@@ -127,7 +127,12 @@ export function resetConversation() {
 
 // Project context management
 export function updateProjectContext(projectPath: string, fileIndex: any[]) {
-    const projectName = projectPath.split(/[\\/]/).pop() || 'Unknown';
+    // FIX-Path: Handle trailing slashes and normalize separators
+    const projectName = projectPath.replace(/[\\\/]$/, '').split(/[\\\/]/).pop() || 'Corex Project';
+
+    // 🆕 Detect if this is a model folder (not a code project)
+    const ggufFiles = fileIndex.filter(f => f.path.toLowerCase().endsWith('.gguf'));
+    const isModelFolder = ggufFiles.length > 0 && ggufFiles.length === fileIndex.length;
 
     // Detect project type
     const hasPackageJson = fileIndex.some(f => f.path.includes('package.json'));
@@ -135,7 +140,8 @@ export function updateProjectContext(projectPath: string, fileIndex: any[]) {
     const hasPyProject = fileIndex.some(f => f.path.includes('pyproject.toml'));
 
     let projectType = 'unknown';
-    if (hasPackageJson) projectType = 'javascript/typescript';
+    if (isModelFolder) projectType = 'model-folder';
+    else if (hasPackageJson) projectType = 'javascript/typescript';
     else if (hasCargoToml) projectType = 'rust';
     else if (hasPyProject) projectType = 'python';
 

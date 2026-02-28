@@ -334,8 +334,11 @@ export const AVAILABLE_TOOLS: Tool[] = [
 ];
 
 // Tool execution
-export async function executeTool(toolName: string, parameters: any): Promise<any> {
+export async function executeTool(toolName: string, parameters: any, projectPath: string = ""): Promise<any> {
   console.log(`🔧 Executing tool: ${toolName}`, parameters);
+
+  // Normalize project root
+  const rootPath = projectPath.replace(/\\/g, '/').replace(/\/$/, '');
 
   try {
     switch (toolName) {
@@ -357,22 +360,22 @@ export async function executeTool(toolName: string, parameters: any): Promise<an
 
       case 'run_terminal':
       case 'run_command': // FIX-37 Alias
-        return await runTerminal(parameters.command || parameters.cmd);
+        return await runTerminal(parameters.command || parameters.cmd, rootPath);
 
       case 'read_file':
-        return await readFile(parameters.path);
+        return await readFile(parameters.path, rootPath);
 
       case 'write_file':
-        return await writeFile(parameters.path, parameters.content);
+        return await writeFile(parameters.path, parameters.content, rootPath);
 
       case 'list_files':
-        return await listFiles(parameters.path || '.');
+        return await listFiles(parameters.path || '.', rootPath);
 
       case 'glob_search':
-        return await globSearch(parameters.pattern);
+        return await globSearch(parameters.pattern, rootPath);
 
       case 'grep_search':
-        return await grepSearch(parameters.query);
+        return await grepSearch(parameters.query, rootPath);
 
       case 'plan_task':
         return await planTask(parameters.task, parameters.context);
@@ -441,10 +444,10 @@ export async function executeTool(toolName: string, parameters: any): Promise<an
         return await scaffoldModule(parameters.module_name, parameters.pattern, parameters.path);
 
       case 'deep_search_project':
-        return await deepSearchProject(parameters.query);
+        return await deepSearchProject(parameters.query, rootPath);
 
       case 'get_project_map':
-        return await getProjectMap();
+        return await getProjectMap(rootPath);
 
       case 'panic_cleanup':
         return await panicCleanup(parameters.port);
@@ -475,9 +478,9 @@ export async function executeTool(toolName: string, parameters: any): Promise<an
 // Tool implementations
 const SAFE_COMMANDS = ['ls', 'dir', 'pwd', 'cat', 'echo', 'npm', 'cargo',
   'python', 'git', 'node', 'tsc', 'grep', 'find', 'mkdir', 'cp', 'mv', 'rm', 'npx',
-  'vitest', 'jest', 'touch', 'tree', 'code']; // FIX-18
+  'vitest', 'jest', 'touch', 'tree', 'code', 'pip']; // FIX-18
 
-async function runTerminal(command: string): Promise<any> {
+async function runTerminal(command: string, rootPath: string = ""): Promise<any> {
   try {
     // Basic verification
     const firstWord = command.trim().split(/\s+/)[0];
@@ -502,7 +505,7 @@ async function runTerminal(command: string): Promise<any> {
     const result = await invoke('execute_command', {
       command: shell,
       args: shellArgs,
-      cwd: null
+      cwd: rootPath || null
     });
 
     // Notify terminal UI (FIX-37)
@@ -531,29 +534,51 @@ async function runTerminal(command: string): Promise<any> {
   }
 }
 
-async function readFile(path: string): Promise<any> {
+async function readFile(path: string, rootPath: string = ""): Promise<any> {
   try {
-    const content = await invoke('read_file_content', { path });
+    // Normalleşmiş yol
+    let targetPath = path.replace(/\\/g, '/');
+
+    // Hallüsinasyon temizliği (/app/ vb.)
+    targetPath = targetPath.replace(/^(\/app\/|C:\\app\\|proj\/|.\/)/i, '');
+
+    // Eğer rootPath varsa ve targetPath relative ise (drive letter veya root slash yoksa)
+    if (rootPath && !targetPath.includes(':') && !targetPath.startsWith('/') && !targetPath.startsWith('\\')) {
+      targetPath = `${rootPath}/${targetPath}`;
+    }
+
+    const content = await invoke('read_file_content', { path: targetPath });
     return {
       success: true,
       content,
-      path
+      path: targetPath
     };
   } catch (error) {
     return {
       success: false,
-      error: `Dosya bulunamadı (${path}). Eğer boş bir projedeysen veya dosyayı sıfırdan oluşturman gerekiyorsa, lütfen 'write_file' GÖREVİNİ KULLANARAK dosyayı (gerekli kodlarıyla birlikte) sen oluştur. Benden (kullanıcıdan) dosyayı oluşturmamı İSTEME!`,
+      error: `Dosya bulunamadı (${path}). Eğer boş bir projedeysen veya dosyayı sıfırdan oluşturman gerekiyorsa, lütfen 'write_file' GÖREVİNİ KULLANARAK dosyayı (gerekli kodlarıyla birlikte) sen oluştur.`,
       path
     };
   }
 }
 
-async function writeFile(path: string, content: string): Promise<any> {
+async function writeFile(path: string, content: string, rootPath: string = ""): Promise<any> {
   try {
-    await invoke('write_file', { path, content });
+    // Normalleşmiş yol
+    let targetPath = path.replace(/\\/g, '/');
+
+    // Hallüsinasyon temizliği (/app/ vb.)
+    targetPath = targetPath.replace(/^(\/app\/|C:\\app\\|proj\/|.\/)/i, '');
+
+    // Eğer rootPath varsa ve targetPath relative ise
+    if (rootPath && !targetPath.includes(':') && !targetPath.startsWith('/') && !targetPath.startsWith('\\')) {
+      targetPath = `${rootPath}/${targetPath}`;
+    }
+
+    await invoke('write_file', { path: targetPath, content });
     return {
       success: true,
-      path,
+      path: targetPath,
       message: 'File written successfully'
     };
   } catch (error) {
@@ -565,9 +590,13 @@ async function writeFile(path: string, content: string): Promise<any> {
   }
 }
 
-async function listFiles(path: string): Promise<any> {
+async function listFiles(path: string, rootPath: string = ""): Promise<any> {
   try {
-    const files = await invoke('get_all_files', { path });
+    let targetPath = path.replace(/\\/g, '/');
+    if (rootPath && !targetPath.includes(':') && !targetPath.startsWith('/') && !targetPath.startsWith('\\')) {
+      targetPath = `${rootPath}/${targetPath}`;
+    }
+    const files = await invoke('get_all_files', { path: targetPath });
     return {
       success: true,
       files,
@@ -583,7 +612,7 @@ async function listFiles(path: string): Promise<any> {
   }
 }
 
-async function globSearch(pattern: string): Promise<any> {
+async function globSearch(pattern: string, rootPath: string = ""): Promise<any> {
   try {
     // Tauri backend'de find/glob komutu çalıştırıyoruz
     // isWindows kontrolü
@@ -596,7 +625,7 @@ async function globSearch(pattern: string): Promise<any> {
       command = `find . -name "${pattern}" -not -path "*/node_modules/*" -not -path "*/.git/*"`;
     }
 
-    const result = await runTerminal(command);
+    const result = await runTerminal(command, rootPath);
     return {
       success: result.success,
       pattern,
@@ -608,24 +637,20 @@ async function globSearch(pattern: string): Promise<any> {
   }
 }
 
-async function grepSearch(query: string): Promise<any> {
+async function grepSearch(query: string, rootPath: string = ""): Promise<any> {
   try {
-    const isWindows = navigator.platform.toLowerCase().includes('win');
-    // Ripgrep (rg) projelerde çok popüler ama garantili değil. 
-    // Temel grep / findstr fallback
-    const command = isWindows
-      ? `findstr /s /i /n /c:"${query.replace(/"/g, '""')}" *.* | findstr /v "node_modules \\.git"`
-      : `grep -rn -i --exclude-dir=node_modules --exclude-dir=.git "${query}" .`;
-
-    const result = await runTerminal(command);
-
+    console.log(`🔎 Grep Searching for "${query}" in ${rootPath || 'current directory'}`);
+    const results = await invoke('grep_search_command', {
+      query,
+      path: rootPath || '.'
+    }) as any;
     // Uzun çıktıları sınırla
-    const stdout = result.stdout || '';
+    const stdout = results.stdout || '';
     const limitCount = 5000;
     const finalOut = stdout.length > limitCount ? stdout.substring(0, limitCount) + '\n...[TRUNCATED]' : stdout;
 
     return {
-      success: result.success || finalOut.length > 0, // grep -1 dönebilir
+      success: results.success || finalOut.length > 0,
       query,
       matches: finalOut,
       message: finalOut ? 'Search completed' : 'No matches found',
@@ -1326,19 +1351,19 @@ async function scaffoldModule(moduleName: string, pattern: string, basePath: str
   }
 }
 
-async function deepSearchProject(query: string): Promise<any> {
+async function deepSearchProject(query: string, rootPath: string = ""): Promise<any> {
   try {
     console.log(`🔎 Advanced RAG: Deep searching for "${query}"`);
     const { ragService } = await import('./ragService');
 
-    // 1. RAG Arama
-    const ragResults = await ragService.search(query, 10);
+    // 1. RAG Arama (FIX-Scoping)
+    const ragResults = await ragService.search(query, 10, rootPath);
 
     // 2. Grep Arama
-    const grepResults = await grepSearch(query);
+    const grepResults = await grepSearch(query, rootPath);
 
     // 3. Dosya Haritası araması
-    const globResults = await globSearch(`**/*${query}*`);
+    const globResults = await globSearch(`**/*${query}*`, rootPath);
 
     return {
       success: true,
@@ -1352,16 +1377,16 @@ async function deepSearchProject(query: string): Promise<any> {
   }
 }
 
-async function getProjectMap(): Promise<any> {
+async function getProjectMap(rootPath: string = ""): Promise<any> {
   try {
-    console.log('🗺️ Project Architect: Mapping project structure');
+    console.log(`🗺️ Project Architect: Mapping project structure for ${rootPath || 'current dir'}`);
     // Ana dizinleri listele
-    const mainDirs = await listFiles('.');
+    const mainDirs = await listFiles('.', rootPath);
 
     // Önemli dosyaları bul
     const structure = {
       root: Array.isArray(mainDirs) ? mainDirs.slice(0, 20) : mainDirs,
-      src: await listFiles('./src').catch(() => []),
+      src: await listFiles('./src', rootPath).catch(() => []),
       importantFiles: ['package.json', 'tsconfig.json', 'src/App.tsx', 'tauri.conf.json'],
     };
 

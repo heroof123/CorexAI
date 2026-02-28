@@ -21,7 +21,10 @@ function extractSingularityJson(text: string): any {
 }
 
 export class SingularityService {
-    public static async selfModify(intention: string, fileIndex: FileIndex[]): Promise<string> {
+    public static async selfModify(intention: string, fileIndex: FileIndex[], projectPath: string = ""): Promise<string> {
+        // Normalize projectPath
+        const rootPath = projectPath.replace(/\\/g, '/').replace(/\/$/, '');
+
         // Hedef kitle (500GB+ VRAM kullananlar) için tüm proje dosyalarını (React, Rust) belleğe alıyoruz
         const targetFiles = fileIndex.filter(f =>
             (f.path.endsWith('.tsx') || f.path.endsWith('.ts') || f.path.endsWith('.css') || f.path.endsWith('.rs'))
@@ -58,14 +61,15 @@ ${history}
 1. You must act as if you are modifying a mirror clone (Shadow Workspace).
 2. You can read, create, modify files, and even run terminal commands to test (npm run build, cargo build).
 3. If the user asks for a new architectural feature, create all necessary files (components, contexts, services).
-4. Provide the EXACT full paths for each modified or created file.
+4. Provide the EXACT relative paths from the project root. DO NOT prepend /app/ or any other drive letters.
+5. The project root is: ${rootPath}
 
 --- ACTION FORMAT (STRICT JSON) ---
 You must output ONLY ONE valid JSON object representing your next action. No markdown formatting, no explanations outside JSON.
 {
   "thought": "1-2 sentences explaining what you are doing in this step",
   "action": "read_file" | "write_file" | "run_command" | "done",
-  "path": "path/to/file.tsx", // Required for read_file and write_file
+  "path": "src/components/MyFile.tsx", // Relative to project root
   "content": "Entire file content", // Required ONLY for write_file
   "command": "npm run build", // Required ONLY for run_command
   "summary": "What was achieved globally" // Required ONLY for done
@@ -86,20 +90,32 @@ If you have achieved the goal, return {"action": "done", "summary": "Goal comple
                 history += `\n[${iter}] 🧠 DÜŞÜNCE: ${actionObj.thought || 'N/A'}\n`;
                 history += `[${iter}] ⚙️ EYLEM: ${actionObj.action}\n`;
 
-                if (actionObj.action === "read_file" && actionObj.path) {
+                // Path cleaning and resolution logic
+                let targetPath = actionObj.path || "";
+                if (targetPath) {
+                    // Remove hallucinated prefixes
+                    targetPath = targetPath.replace(/^(\/app\/|C:\\app\\|proj\/|.\/)/i, '');
+                    // Prepend root if not absolute
+                    if (rootPath && !targetPath.includes(':') && !targetPath.startsWith('/') && !targetPath.startsWith('\\')) {
+                        targetPath = `${rootPath}/${targetPath}`;
+                    }
+                    targetPath = targetPath.replace(/\\/g, '/');
+                }
+
+                if (actionObj.action === "read_file" && targetPath) {
                     try {
-                        const content = await invoke<string>("read_file", { path: actionObj.path });
-                        history += `[${iter}] 📄 SONUÇ (${actionObj.path}): Başarıyla okundu. Uzunluk: ${content.length} karakter.\n`;
+                        const content = await invoke<string>("read_file", { path: targetPath });
+                        history += `[${iter}] 📄 SONUÇ (${targetPath}): Başarıyla okundu. Uzunluk: ${content.length} karakter.\n`;
                     } catch (e) {
-                        history += `[${iter}] ❌ HATA (${actionObj.path}): Dosya okunamadı. ${e}\n`;
+                        history += `[${iter}] ❌ HATA (${targetPath}): Dosya okunamadı. ${e}\n`;
                     }
                 }
-                else if (actionObj.action === "write_file" && actionObj.path) {
+                else if (actionObj.action === "write_file" && targetPath) {
                     try {
-                        await invoke("create_file", { path: actionObj.path, content: actionObj.content || "" });
-                        history += `[${iter}] ✍️ SONUÇ (${actionObj.path}): Dosya başarıyla oluşturuldu/güncellendi.\n`;
+                        await invoke("write_file", { path: targetPath, content: actionObj.content || "" });
+                        history += `[${iter}] ✍️ SONUÇ (${targetPath}): Dosya başarıyla oluşturuldu/güncellendi.\n`;
                     } catch (e) {
-                        history += `[${iter}] ❌ HATA (${actionObj.path}): Dosya yazılamadı. ${e}\n`;
+                        history += `[${iter}] ❌ HATA (${targetPath}): Dosya yazılamadı. ${e}\n`;
                     }
                 }
                 else if (actionObj.action === "run_command" && actionObj.command) {
@@ -107,7 +123,7 @@ If you have achieved the goal, return {"action": "done", "summary": "Goal comple
                         history += `[${iter}] ⚡ ÇALIŞTIRILIYOR: ${actionObj.command}\n`;
                         const res = await invoke<any>("execute_terminal_command", {
                             command: actionObj.command,
-                            path: "."
+                            path: rootPath || "."
                         });
                         history += `[${iter}] ✅ KOMUT ÇIKTISI (STDOUT): ${String(res.stdout || '').substring(0, 300)}...\n`;
                         if (res.stderr) {

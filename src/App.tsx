@@ -70,6 +70,7 @@ function AppContent() {
     notification,
     setNotification,
     commands,
+    activeModelName,
   } = useAppLogic();
 
   // Onboarding state
@@ -348,9 +349,16 @@ function AppContent() {
                   🔍
                 </span>
                 {project.projectPath ? (
-                  <span className="text-[11px] font-bold text-white/50 group-hover:text-white transition-colors">
-                    {project.projectPath.split(/[\\\/]/).pop()} — {fileIndex.length} files
-                  </span>
+                  <div className="flex flex-col items-center">
+                    <span className="text-[11px] font-bold text-white/70 group-hover:text-white transition-colors">
+                      {project.projectPath.replace(/[\\\/]$/, '').split(/[\\\/]/).pop() || 'Project'} — {fileIndex.length} files
+                    </span>
+                    {activeModelName && (
+                      <span className="text-[9px] text-blue-400/80 font-medium">
+                        🧠 {activeModelName}
+                      </span>
+                    )}
+                  </div>
                 ) : (
                   <span className="text-[11px] font-bold text-white/50 group-hover:text-white transition-colors">
                     Search Project... (Ctrl+P)
@@ -848,6 +856,7 @@ function AppContent() {
                     onRegenerateResponse={chat.handleRegenerateResponse}
                     isMentorMode={chat.isMentorMode}
                     onMentorModeToggle={chat.setIsMentorMode}
+                    projectPath={project.projectPath}
                   />
                 </div>
               </div>
