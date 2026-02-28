@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { callAI } from "../services/aiProvider";
+import { callAI } from "../services/ai";
 import { getModelIdForRole } from "../services/ai";
 
 interface AcademyProps {

@@ -11,6 +11,7 @@ pub mod git_commands;
 pub mod mcp;
 pub mod oauth;
 pub mod oauth_backend;
+pub mod p2p;
 pub mod process_monitor;
 pub mod rag_pipeline;
 pub mod remote;

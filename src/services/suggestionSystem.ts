@@ -1,5 +1,5 @@
 // services/suggestionSystem.ts - AI Öneri Sistemi
-import { callAI } from "./aiProvider";
+import { callAI } from "./ai";
 import { FileIndex } from "../types/index";
 
 export interface Suggestion {

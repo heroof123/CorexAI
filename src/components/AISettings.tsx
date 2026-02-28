@@ -7,7 +7,8 @@ import {
   saveAutonomyConfig,
   getAutonomyLevelDescription,
   type AutonomyLevel
-} from "../services/autonomy";
+} from "../services/ai";
+import { agentService } from "../services/agentService";
 import { storage } from "../services/storage";
 
 interface AIProvider {
@@ -411,7 +412,7 @@ export default function AISettings({ isVisible, onClose, onProviderChange }: AIS
     try {
       console.log('🔍 Modeller getiriliyor:', provider.name);
 
-      const { fetchAvailableModels } = await import('../services/aiProvider');
+      const { fetchAvailableModels } = await import('../services/ai/aiProvider');
       const modelNames = await fetchAvailableModels(provider);
 
       console.log('📥 Alınan modeller:', modelNames);
@@ -420,11 +421,11 @@ export default function AISettings({ isVisible, onClose, onProviderChange }: AIS
         // Kullanıcıya modelleri göster ve seçim yaptır
         const selectedModels = modelNames.slice(0, 10); // İlk 10 modeli al
 
-        const newModels = selectedModels.map((modelName, index) => {
+        const newModels = selectedModels.map((modelName: string, index: number) => {
           return {
             id: `fetched-${Date.now()}-${index}`,
             name: modelName,
-            displayName: modelName.replace(/[-_]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            displayName: modelName.replace(/[-_]/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
             description: `${provider.name} modeli`,
             specialty: "Genel Amaçlı",
             maxTokens: 4096,
@@ -886,114 +887,10 @@ export default function AISettings({ isVisible, onClose, onProviderChange }: AIS
           )}
 
           {activeTab === 'autonomy' && (
-            <div className="space-y-3">
-              <div>
-                <h3 className="text-lg font-semibold text-[var(--color-text)] mb-2">🎚️ Otomasyon Seviyesi</h3>
-                <p className="text-sm text-[var(--color-textSecondary)] mb-2">
-                  AI'nın tool'ları ne kadar özgürce kullanabileceğini belirleyin
-                </p>
-              </div>
-
-              {/* Autonomy Level Slider */}
-              <div className="bg-[var(--color-surface)] rounded-lg p-6 border border-[var(--color-border)]">
-                <div className="mb-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-[var(--color-text)]">Seviye {autonomyLevel}</span>
-                    <span className="text-xs text-[var(--color-textSecondary)]">{getAutonomyLevelDescription(autonomyLevel)}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="1"
-                    max="5"
-                    value={autonomyLevel}
-                    onChange={(e) => {
-                      const newLevel = parseInt(e.target.value) as AutonomyLevel;
-                      setAutonomyLevel(newLevel);
-                      saveAutonomyConfig({ level: newLevel });
-                    }}
-                    className="w-full h-2 bg-[var(--color-background)] rounded-lg appearance-none cursor-pointer slider border border-[var(--color-border)]"
-                  />
-                  <div className="flex justify-between text-xs text-neutral-500 mt-1">
-                    <span>1</span>
-                    <span>2</span>
-                    <span>3</span>
-                    <span>4</span>
-                    <span>5</span>
-                  </div>
-                </div>
-
-                {/* Level Descriptions */}
-                <div className="space-y-3">
-                  {[
-                    { level: 1, icon: '🔒', title: 'Chat Only', desc: 'Tool yok, sadece sohbet' },
-                    { level: 2, icon: '💬', title: 'Suggestions', desc: 'Tüm tool\'lar onay gerektirir' },
-                    { level: 3, icon: '⚖️', title: 'Balanced (Önerilen)', desc: 'Güvenli tool\'lar otomatik, tehlikeli olanlar onay gerektirir' },
-                    { level: 4, icon: '🚀', title: 'Auto Tools', desc: 'Çoğu tool otomatik çalışır' },
-                    { level: 5, icon: '⚠️', title: 'Autonomous (Tehlikeli!)', desc: 'Tüm tool\'lar otomatik çalışır' }
-                  ].map((item) => (
-                    <div
-                      key={item.level}
-                      className={`p-3 rounded-lg border transition-colors ${autonomyLevel === item.level
-                        ? 'bg-[var(--color-primary)]/10 border-[var(--color-primary)]'
-                        : 'bg-[var(--color-background)] border-[var(--color-border)]'
-                        }`}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-lg">{item.icon}</span>
-                        <span className="text-sm font-medium text-[var(--color-text)]">{item.title}</span>
-                        {item.level === 3 && (
-                          <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">Önerilen</span>
-                        )}
-                      </div>
-                      <p className="text-xs text-neutral-400 ml-7">{item.desc}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Safe Tools */}
-              <div className="bg-[var(--color-surface)] rounded-lg p-2 border border-[var(--color-border)]">
-                <h4 className="text-sm font-semibold text-[var(--color-text)] mb-3">✅ Güvenli Tool'lar (Her zaman otomatik)</h4>
-                <div className="flex flex-wrap gap-2">
-                  {['read_file', 'list_files', 'plan_task', 'generate_code'].map((tool) => (
-                    <span key={tool} className="px-3 py-1 bg-green-500/10 text-green-400 text-xs rounded-full border border-green-500/30">
-                      {tool}
-                    </span>
-                  ))}
-                </div>
-                <p className="text-xs text-neutral-500 mt-2">
-                  🤖 Multi-agent tool'lar (plan_task, generate_code) güvenlidir - sadece öneri üretir
-                </p>
-              </div>
-
-              {/* Dangerous Commands */}
-              <div className="bg-[var(--color-surface)] rounded-lg p-2 border border-[var(--color-border)]">
-                <h4 className="text-sm font-semibold text-[var(--color-text)] mb-3">⚠️ Tehlikeli Komutlar (Her zaman onay gerektirir)</h4>
-                <div className="flex flex-wrap gap-2">
-                  {['rm', 'del', 'format', 'DROP TABLE', 'shutdown'].map((cmd) => (
-                    <span key={cmd} className="px-3 py-1 bg-red-500/10 text-red-400 text-xs rounded-full border border-red-500/30 font-mono">
-                      {cmd}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Warning */}
-              {autonomyLevel >= 4 && (
-                <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-4">
-                  <div className="flex items-start gap-3">
-                    <span className="text-2xl">ℹ️</span>
-                    <div>
-                      <h4 className="text-sm font-semibold text-[var(--color-primary)] mb-1">Dikkat!</h4>
-                      <p className="text-xs text-[var(--color-textSecondary)]">
-                        Yüksek otomasyon seviyesi tehlikeli olabilir. AI terminal komutları ve dosya işlemlerini otomatik çalıştırabilir.
-                        Sadece güvendiğiniz modeller için kullanın.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <AutonomyTabContent
+              autonomyLevel={autonomyLevel}
+              setAutonomyLevel={setAutonomyLevel}
+            />
           )}
 
           {activeTab === 'add' && (
@@ -1272,6 +1169,181 @@ export default function AISettings({ isVisible, onClose, onProviderChange }: AIS
           </div>
         </div>
       </div>
+    </div >
+  );
+}
+
+// ─── Autonomy Tab: Otonom İşlem Merkezi (full embed) ─────────────────────────
+function AutonomyTabContent({
+  autonomyLevel,
+  setAutonomyLevel,
+}: {
+  autonomyLevel: AutonomyLevel;
+  setAutonomyLevel: (l: AutonomyLevel) => void;
+}) {
+  const [activeRole, setActiveRole] = useState(agentService.getActiveRole());
+  const [agentLogs, setAgentLogs] = useState<{ id: number; content: string; ts: number }[]>([]);
+
+  useEffect(() => {
+    const handler = (msg: any) => {
+      if (msg.role === 'system' && (msg.content.includes('🤖') || msg.content.includes('✅') || msg.content.includes('🔧'))) {
+        setAgentLogs(prev => [{ id: Date.now(), content: msg.content, ts: Date.now() }, ...prev].slice(0, 30));
+      }
+    };
+    agentService.registerChatCallback(handler);
+    return () => agentService.unregisterChatCallback(handler);
+  }, []);
+
+  const handleRoleChange = (role: 'Architect' | 'Developer' | 'QA' | 'CorexA') => {
+    agentService.setActiveRole(role);
+    setActiveRole(role);
+  };
+
+  const levels: AutonomyLevel[] = [1, 2, 3, 4, 5];
+  const levelItems = [
+    { level: 1 as AutonomyLevel, icon: '🔒', title: 'Chat Only', desc: 'Tool yok, sadece sohbet' },
+    { level: 2 as AutonomyLevel, icon: '💬', title: 'Suggestions', desc: 'Tüm tool\'lar onay gerektirir' },
+    { level: 3 as AutonomyLevel, icon: '⚖️', title: 'Balanced', desc: 'Güvenli tool\'lar otomatik, tehlikeli olanlar onay gerektirir', recommended: true },
+    { level: 4 as AutonomyLevel, icon: '🚀', title: 'Auto Tools', desc: 'Çoğu tool otomatik çalışır' },
+    { level: 5 as AutonomyLevel, icon: '⚠️', title: 'Autonomous (Tehlikeli!)', desc: 'Tüm tool\'lar otomatik çalışır' },
+  ];
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="flex items-center gap-3 p-3 bg-black/30 border border-white/5 rounded-xl">
+        <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.8)]" />
+        <div>
+          <h3 className="text-sm font-black text-white uppercase tracking-tight">🤖 Otonom İşlem Merkezi</h3>
+          <p className="text-[10px] text-neutral-500 uppercase tracking-widest">Ghost in the Machine (v2.0)</p>
+        </div>
+      </div>
+
+      {/* Autonomy Level */}
+      <div className="bg-[var(--color-surface)] rounded-xl p-4 border border-[var(--color-border)]">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs font-bold text-[var(--color-text)]">Otonomi Seviyesi</span>
+          <span className="text-xs font-bold text-white bg-red-500/20 px-2 py-0.5 rounded-full border border-red-500/30">
+            Seviye {autonomyLevel}
+          </span>
+        </div>
+        {/* Colored bars */}
+        <div className="flex gap-1.5 mb-2">
+          {levels.map(l => (
+            <button
+              key={l}
+              onClick={() => { setAutonomyLevel(l); saveAutonomyConfig({ level: l }); }}
+              title={getAutonomyLevelDescription(l)}
+              className={`flex-1 h-2 rounded-full transition-all border-none cursor-pointer ${autonomyLevel >= l
+                ? l === 5 ? 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]' : 'bg-blue-500'
+                : 'bg-white/10'
+                }`}
+            />
+          ))}
+        </div>
+        <p className="text-[10px] text-center text-neutral-500 italic">{getAutonomyLevelDescription(autonomyLevel)}</p>
+      </div>
+
+      {/* Level Cards */}
+      <div className="space-y-1.5">
+        {levelItems.map(item => (
+          <div
+            key={item.level}
+            onClick={() => { setAutonomyLevel(item.level); saveAutonomyConfig({ level: item.level }); }}
+            className={`p-2.5 rounded-lg border cursor-pointer transition-all ${autonomyLevel === item.level
+              ? 'bg-[var(--color-primary)]/10 border-[var(--color-primary)]'
+              : 'bg-[var(--color-background)] border-[var(--color-border)] hover:border-white/20'
+              }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-base">{item.icon}</span>
+              <span className="text-xs font-semibold text-[var(--color-text)]">{item.title}</span>
+              {item.recommended && (
+                <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[9px] rounded">Önerilen</span>
+              )}
+            </div>
+            <p className="text-[10px] text-neutral-500 ml-7 mt-0.5">{item.desc}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Active Role */}
+      <div className="bg-[var(--color-surface)] rounded-xl p-3 border border-[var(--color-border)]">
+        <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2">Aktif Rol</p>
+        <div className="grid grid-cols-4 gap-1.5">
+          {(['Architect', 'Developer', 'QA', 'CorexA'] as const).map(role => (
+            <button
+              key={role}
+              onClick={() => handleRoleChange(role)}
+              className={`py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all border ${activeRole === role
+                ? 'bg-blue-600 text-white border-blue-400'
+                : 'bg-white/[0.02] text-neutral-500 border-white/5 hover:border-white/20 hover:text-white'
+                }`}
+            >
+              {role}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tool Lists */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-[var(--color-surface)] rounded-xl p-3 border border-[var(--color-border)]">
+          <h4 className="text-[10px] font-bold text-green-400 mb-2">✅ Güvenli Tool'lar</h4>
+          <div className="flex flex-wrap gap-1">
+            {['read_file', 'list_files', 'plan_task', 'generate_code'].map(t => (
+              <span key={t} className="px-1.5 py-0.5 bg-green-500/10 text-green-400 text-[9px] rounded border border-green-500/20 font-mono">{t}</span>
+            ))}
+          </div>
+        </div>
+        <div className="bg-[var(--color-surface)] rounded-xl p-3 border border-[var(--color-border)]">
+          <h4 className="text-[10px] font-bold text-red-400 mb-2">⚠️ Tehlikeli Komutlar</h4>
+          <div className="flex flex-wrap gap-1">
+            {['rm', 'del', 'format', 'DROP TABLE', 'shutdown'].map(c => (
+              <span key={c} className="px-1.5 py-0.5 bg-red-500/10 text-red-400 text-[9px] rounded border border-red-500/20 font-mono">{c}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Live Activity Feed */}
+      <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] overflow-hidden">
+        <div className="px-3 py-2 border-b border-[var(--color-border)] flex items-center justify-between">
+          <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">Otonom Aktivite</span>
+          <span className="text-[9px] text-neutral-600 font-mono">LIVE FEED</span>
+        </div>
+        <div className="h-32 overflow-y-auto p-2 space-y-1.5">
+          {agentLogs.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center opacity-20">
+              <div className="text-3xl mb-1">📡</div>
+              <p className="text-[10px] text-white">Otonom işlem bekleniyor...</p>
+            </div>
+          ) : (
+            agentLogs.map(log => (
+              <div key={log.id} className="p-1.5 bg-black/20 border-l-2 border-red-500/50 rounded-r-lg">
+                <span className="text-[9px] text-neutral-600 font-mono">{new Date(log.ts).toLocaleTimeString()}</span>
+                <p className="text-[10px] text-neutral-300 font-mono leading-relaxed">{log.content.replace(/\*\*/g, '')}</p>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* High autonomy warning */}
+      {autonomyLevel >= 4 && (
+        <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400 text-xs">
+          <span>⚠️</span>
+          <p>Yüksek otomasyon seviyesi tehlikeli olabilir. AI terminal komutları ve dosya işlemlerini otomatik çalıştırabilir.</p>
+        </div>
+      )}
+
+      {/* Heal Button */}
+      <button
+        onClick={() => agentService.applyAutofix("Manual trigger scan")}
+        className="w-full py-2.5 bg-gradient-to-r from-red-600 to-orange-600 rounded-xl text-xs font-black uppercase tracking-wider text-white hover:opacity-90 transition-all"
+      >
+        🔧 Tüm Projeyi Otomatik Düzelt
+      </button>
     </div>
   );
 }

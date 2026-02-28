@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { agentService } from "../services/agentService";
+import { getAutonomyConfig } from "../services/ai";
 
 interface TerminalPanelProps {
   projectPath: string;
@@ -161,6 +162,12 @@ export default function TerminalPanel({ projectPath, isVisible, onClose }: Termi
           <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50 shadow-[0_0_8px_rgba(234,179,8,0.4)]" />
           <div className="w-2.5 h-2.5 rounded-full bg-green-500/50 shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
           <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white/30 ml-3">Terminal Sistemi v4.0</span>
+          {getAutonomyConfig().level === 5 && (
+            <div className="flex items-center gap-2 ml-4 px-2 py-0.5 bg-red-500/10 border border-red-500/30 rounded text-[9px] font-black text-red-500 animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_5px_red]" />
+              OTONOM KONTROL AKTİF
+            </div>
+          )}
           {currentDir && (
             <span className="text-[10px] font-bold text-white/20 tracking-wider">
               [ {currentDir.split(/[\\/]/).pop()} ]

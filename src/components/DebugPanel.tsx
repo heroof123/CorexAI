@@ -32,11 +32,12 @@ interface DebugPanelProps {
 }
 
 export default function DebugPanel({ projectPath, currentFile, onBreakpointToggle }: DebugPanelProps) {
-  const [activeTab, setActiveTab] = useState<'breakpoints' | 'variables' | 'console' | 'tests'>('breakpoints');
+  const [activeTab, setActiveTab] = useState<'breakpoints' | 'variables' | 'console' | 'tests' | 'timetravel'>('breakpoints');
   const [breakpoints, setBreakpoints] = useState<Breakpoint[]>([]);
   const [variables, setVariables] = useState<DebugVariable[]>([]);
   const [consoleOutput, setConsoleOutput] = useState<string[]>([]);
   const [testResults, setTestResults] = useState<TestResult[]>([]);
+  const [timeTravelLogs, setTimeTravelLogs] = useState<{ timestamp: number, line: number, vars: any }[]>([]);
   const [isDebugging, setIsDebugging] = useState(false);
   const [isRunningTests, setIsRunningTests] = useState(false);
   const [debugCommand, setDebugCommand] = useState('');
@@ -69,9 +70,9 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
   const addBreakpoint = (filePath: string, lineNumber: number, condition?: string) => {
     const id = `${filePath}:${lineNumber}`;
     const existing = breakpoints.find(bp => bp.id === id);
-    
+
     if (existing) {
-      setBreakpoints(prev => prev.map(bp => 
+      setBreakpoints(prev => prev.map(bp =>
         bp.id === id ? { ...bp, enabled: !bp.enabled } : bp
       ));
     } else {
@@ -84,7 +85,7 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
       };
       setBreakpoints(prev => [...prev, newBreakpoint]);
     }
-    
+
     onBreakpointToggle(filePath, lineNumber);
   };
 
@@ -97,7 +98,7 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
   };
 
   const toggleBreakpoint = (id: string) => {
-    setBreakpoints(prev => prev.map(bp => 
+    setBreakpoints(prev => prev.map(bp =>
       bp.id === id ? { ...bp, enabled: !bp.enabled } : bp
     ));
   };
@@ -105,11 +106,11 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
   const startDebugging = async () => {
     setIsDebugging(true);
     setConsoleOutput(prev => [...prev, '🚀 Debug oturumu başlatılıyor...']);
-    
+
     try {
       // Mock debug start - in real implementation, this would start a debug session
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       // Mock variables
       setVariables([
         { name: 'projectPath', value: projectPath, type: 'string', expandable: false },
@@ -117,7 +118,13 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
         { name: 'breakpoints', value: breakpoints.length, type: 'number', expandable: false },
         { name: 'process', value: { pid: 1234, memory: '45MB' }, type: 'object', expandable: true }
       ]);
-      
+
+      // Mock time-travel logs
+      setTimeTravelLogs([
+        { timestamp: Date.now() - 5000, line: 12, vars: { user: 'admin', auth: true } },
+        { timestamp: Date.now() - 2000, line: 15, vars: { user: 'admin', auth: true, redirect: '/home' } }
+      ]);
+
       setConsoleOutput(prev => [...prev, '✅ Debug oturumu başlatıldı']);
     } catch (error) {
       setConsoleOutput(prev => [...prev, `❌ Debug hatası: ${error}`]);
@@ -149,7 +156,7 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
       // Simulate test completion
       for (let i = 0; i < mockTests.length; i++) {
         await new Promise(resolve => setTimeout(resolve, 1000));
-        
+
         setTestResults(prev => prev.map((test, index) => {
           if (index === i) {
             const passed = Math.random() > 0.3;
@@ -177,11 +184,11 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
     if (!debugCommand.trim()) return;
 
     setConsoleOutput(prev => [...prev, `> ${debugCommand}`]);
-    
+
     try {
       // Mock command execution
       if (debugCommand === 'help') {
-        setConsoleOutput(prev => [...prev, 
+        setConsoleOutput(prev => [...prev,
           'Kullanılabilir komutlar:',
           '  help - Bu yardım mesajını göster',
           '  vars - Değişkenleri listele',
@@ -209,7 +216,7 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
   };
 
   const expandVariable = (name: string) => {
-    setVariables(prev => prev.map(v => 
+    setVariables(prev => prev.map(v =>
       v.name === name ? { ...v, expanded: !v.expanded } : v
     ));
   };
@@ -228,17 +235,17 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
           )}
           <span className="text-sm font-mono text-[var(--color-text)]">{variable.name}:</span>
           <span className="text-sm font-mono text-[var(--color-textSecondary)]">
-            {typeof variable.value === 'object' 
+            {typeof variable.value === 'object'
               ? `{${Object.keys(variable.value).length} properties}`
               : JSON.stringify(variable.value)
             }
           </span>
           <span className="text-xs text-[var(--color-textSecondary)]">({variable.type})</span>
         </div>
-        
+
         {variable.expanded && typeof variable.value === 'object' && (
           <div>
-            {Object.entries(variable.value).map(([key, value]) => 
+            {Object.entries(variable.value).map(([key, value]) =>
               renderVariable({
                 name: key,
                 value,
@@ -260,21 +267,21 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
           { id: 'breakpoints', label: '🔴 Breakpoints', count: breakpoints.length },
           { id: 'variables', label: '📊 Variables', count: variables.length },
           { id: 'console', label: '💻 Console', count: consoleOutput.length },
-          { id: 'tests', label: '🧪 Tests', count: testResults.length }
+          { id: 'tests', label: '🧪 Tests', count: testResults.length },
+          { id: 'timetravel', label: '⏳ Time-Travel', count: timeTravelLogs.length }
         ].map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`px-3 py-1 text-xs border-r border-[var(--color-border)] transition-colors ${
-              activeTab === tab.id
-                ? 'bg-[var(--color-primary)] text-white'
-                : 'hover:bg-[var(--color-hover)]'
-            }`}
+            className={`px-3 py-1 text-xs border-r border-[var(--color-border)] transition-colors ${activeTab === tab.id
+              ? 'bg-[var(--color-primary)] text-white'
+              : 'hover:bg-[var(--color-hover)]'
+              }`}
           >
             {tab.label} {tab.count > 0 && `(${tab.count})`}
           </button>
         ))}
-        
+
         {/* Debug Controls */}
         <div className="flex items-center gap-2 ml-auto mr-2">
           {!isDebugging ? (
@@ -292,7 +299,7 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
               ⏹️ Stop
             </button>
           )}
-          
+
           <button
             onClick={runTests}
             disabled={isRunningTests}
@@ -316,7 +323,7 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
                 Tümünü Temizle
               </button>
             </div>
-            
+
             {breakpoints.length === 0 ? (
               <div className="text-center text-[var(--color-textSecondary)] py-8">
                 <div className="text-2xl mb-2">🔴</div>
@@ -332,11 +339,10 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
                   >
                     <button
                       onClick={() => toggleBreakpoint(bp.id)}
-                      className={`w-4 h-4 rounded-full border-2 ${
-                        bp.enabled 
-                          ? 'bg-red-500 border-red-500' 
-                          : 'border-gray-400'
-                      }`}
+                      className={`w-4 h-4 rounded-full border-2 ${bp.enabled
+                        ? 'bg-red-500 border-red-500'
+                        : 'border-gray-400'
+                        }`}
                     />
                     <div className="flex-1">
                       <div className="text-sm font-mono">
@@ -364,7 +370,7 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
         {activeTab === 'variables' && (
           <div className="p-4">
             <h4 className="text-sm font-medium mb-4">Variables</h4>
-            
+
             {!isDebugging ? (
               <div className="text-center text-[var(--color-textSecondary)] py-8">
                 <div className="text-2xl mb-2">📊</div>
@@ -394,7 +400,7 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
                 Temizle
               </button>
             </div>
-            
+
             <div
               ref={consoleRef}
               className="flex-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded p-3 font-mono text-sm overflow-y-auto mb-4"
@@ -405,7 +411,7 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
                 </div>
               ))}
             </div>
-            
+
             <div className="flex gap-2">
               <input
                 type="text"
@@ -441,7 +447,7 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
                 </button>
               </div>
             </div>
-            
+
             {testResults.length === 0 ? (
               <div className="text-center text-[var(--color-textSecondary)] py-8">
                 <div className="text-2xl mb-2">🧪</div>
@@ -453,19 +459,18 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
                 {testResults.map(test => (
                   <div
                     key={test.id}
-                    className={`p-3 border rounded ${
-                      test.status === 'passed' ? 'border-green-500 bg-green-500/10' :
+                    className={`p-3 border rounded ${test.status === 'passed' ? 'border-green-500 bg-green-500/10' :
                       test.status === 'failed' ? 'border-red-500 bg-red-500/10' :
-                      test.status === 'running' ? 'border-blue-500 bg-blue-500/10' :
-                      'border-gray-500 bg-gray-500/10'
-                    }`}
+                        test.status === 'running' ? 'border-blue-500 bg-blue-500/10' :
+                          'border-gray-500 bg-gray-500/10'
+                      }`}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
                         <span className="text-sm">
                           {test.status === 'passed' ? '✅' :
-                           test.status === 'failed' ? '❌' :
-                           test.status === 'running' ? '🔄' : '⏭️'}
+                            test.status === 'failed' ? '❌' :
+                              test.status === 'running' ? '🔄' : '⏭️'}
                         </span>
                         <span className="font-medium text-sm">{test.name}</span>
                       </div>
@@ -475,16 +480,42 @@ export default function DebugPanel({ projectPath, currentFile, onBreakpointToggl
                         </span>
                       )}
                     </div>
-                    
+
                     <div className="text-xs text-[var(--color-textSecondary)] mb-1">
                       📄 {test.file}
                     </div>
-                    
+
                     {test.error && (
                       <div className="text-xs text-red-400 bg-red-900/20 p-2 rounded font-mono">
                         {test.error}
                       </div>
                     )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {activeTab === 'timetravel' && (
+          <div className="p-4">
+            <h4 className="text-sm font-medium mb-4">Time-Travel Debug History</h4>
+            {timeTravelLogs.length === 0 ? (
+              <div className="text-center text-[var(--color-textSecondary)] py-8">
+                <div className="text-2xl mb-2">⏳</div>
+                <div>Yürütme geçmişi bulunamadı</div>
+                <div className="text-xs mt-1">Kod çalışırken değişken değişimleri burada saklanır</div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {timeTravelLogs.map((log, i) => (
+                  <div key={i} className="p-3 bg-[var(--color-background)] border border-[var(--color-border)] rounded-xl hover:border-blue-500/50 transition-all cursor-pointer">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-[10px] font-black text-blue-400 uppercase">Satır {log.line}</span>
+                      <span className="text-[9px] text-neutral-500 font-mono">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <div className="text-[10px] font-mono whitespace-pre">
+                      {JSON.stringify(log.vars, null, 2)}
+                    </div>
                   </div>
                 ))}
               </div>

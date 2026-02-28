@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { callAI } from "../services/aiProvider";
+import { callAI } from "../services/ai";
 
 interface ModelResponse {
     modelId: string;

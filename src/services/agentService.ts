@@ -1,5 +1,5 @@
 import { Message } from "../types";
-import { getAutonomyConfig } from "./autonomy";
+import { getAutonomyConfig } from "./ai";
 
 export interface ErrorPattern {
   regex: RegExp;

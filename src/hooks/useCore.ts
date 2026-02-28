@@ -25,8 +25,14 @@ export function useCore() {
   const pendingTokenRef = useRef<CoreMessage | null>(null);
   const tokenBatchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
   // Listen to Core messages
   useEffect(() => {
+    if (!isTauri) {
+      console.warn('⚠️ useCore: Not in Tauri — Core listener disabled');
+      return;
+    }
     const setupListener = async () => {
       console.log('🎧 useCore: Setting up Core message listener...');
 
@@ -100,6 +106,10 @@ export function useCore() {
    * Send message to Core
    */
   const sendMessage = useCallback(async (message: GUIMessage) => {
+    if (!isTauri) {
+      console.warn('⚠️ useCore: Not in Tauri — message not sent:', message.messageType);
+      return;
+    }
     console.log(`📤 useCore: Sending GUI message: ${message.messageType}`);
     try {
       await emit('gui-message', message);
@@ -107,7 +117,7 @@ export function useCore() {
       console.error('❌ useCore: Failed to send message:', error);
       throw error;
     }
-  }, []);
+  }, [isTauri]);
 
   /**
    * Send chat request

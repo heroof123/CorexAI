@@ -316,7 +316,7 @@ export class TaskExecutor {
       return `[DRY RUN] Would query AI: ${task.query}`;
     }
 
-    const { callAI } = await import('../../services/aiProvider');
+    const { callAI } = await import('../../services/ai');
 
     const response = await callAI(task.query, '', [
       { role: 'user', content: task.query }

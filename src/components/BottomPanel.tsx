@@ -3,7 +3,7 @@ import { CodeAction, FileIndex } from "../types/index";
 import ProactiveSuggestions from "./ProactiveSuggestions";
 import { useLanguage } from "../contexts/LanguageContext";
 import { agentService } from "../services/agentService";
-import { getAutonomyConfig } from "../services/autonomy";
+import { getAutonomyConfig } from "../services/ai";
 
 interface Problem {
   id: string;
@@ -27,6 +27,7 @@ interface BottomPanelProps {
   currentFile?: string;
   onSuggestionClick: (action: string) => void;
   onBreakpointToggle: (filePath: string, lineNumber: number) => void;
+  onFileSelect?: (filePath: string, line?: number) => void; // 🆕 navigate to file
 }
 
 function BottomPanel({
@@ -35,11 +36,12 @@ function BottomPanel({
   pendingActions,
   onAcceptAction,
   onRejectAction,
-  onAcceptAllActions, // 🆕
+  onAcceptAllActions,
   fileIndex,
   projectPath,
   currentFile,
   onSuggestionClick,
+  onFileSelect,
 }: BottomPanelProps) {
   const [activeTab, setActiveTab] = useState<
     "problems" | "output" | "terminal" | "actions" | "suggestions"
@@ -271,6 +273,30 @@ function BottomPanel({
 
           <div className="flex items-center gap-2">
             <button
+              onClick={async () => {
+                if (window.confirm("☢️ TÜM PORTLAR VE SÜREÇLER TEMİZLENECEK! Emin misin?")) {
+                  try {
+                    const { executeTool } = await import("../services/ai");
+                    addOutput("☢️ Nükleer Temizlik Başlatıldı...");
+                    const result = await executeTool("panic_cleanup", {});
+                    if (result.success) {
+                      addOutput(`✅ Temizlik Başarılı: ${result.message}`);
+                      addTerminalOutput(`\n[NUCLEAR] ${result.message}`);
+                    } else {
+                      addOutput(`❌ Temizlik Hatası: ${result.error}`);
+                    }
+                  } catch (err) {
+                    console.error("Panic cleanup fail:", err);
+                  }
+                }
+              }}
+              className="px-2 py-1 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-600/50 rounded text-[10px] font-bold transition-all flex items-center gap-1 group"
+              title="Nuclear Panic Button - Tüm portları ve zombi süreçleri temizler"
+            >
+              <span className="group-hover:animate-pulse">☢️</span>
+              PANIC
+            </button>
+            <button
               onClick={() => {
                 // Clear current tab content
                 switch (activeTab) {
@@ -316,8 +342,13 @@ function BottomPanel({
                     key={problem.id}
                     className="flex items-start gap-2 p-2 hover:bg-[var(--color-surface)] rounded cursor-pointer text-xs"
                     onClick={() => {
-                      // TODO: Navigate to file and line
-                      addOutput(`Navigating to ${problem.file}:${problem.line}`);
+                      // Navigate to file and line
+                      if (onFileSelect) {
+                        onFileSelect(problem.file, problem.line);
+                        addOutput(`📍 ${problem.file.split(/[\\/]/).pop()}:${problem.line} — ${problem.message}`);
+                      } else {
+                        addOutput(`📍 ${problem.file}:${problem.line}`);
+                      }
                     }}
                   >
                     <span className="text-sm">{getSeverityIcon(problem.severity)}</span>
@@ -384,6 +415,14 @@ function BottomPanel({
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-blue-400">🤖</span>
                           <span className="text-sm font-medium text-white">AI Önerisi</span>
+                          {(action as any).confidence && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${(action as any).confidence >= 90 ? 'bg-green-500/20 text-green-400' :
+                              (action as any).confidence >= 70 ? 'bg-yellow-500/20 text-yellow-400' :
+                                'bg-red-500/20 text-red-400'
+                              }`}>
+                              %{(action as any).confidence} güven
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-neutral-300 mb-1">
                           📄 {action.filePath.split(/[\\/]/).pop()}
@@ -400,7 +439,7 @@ function BottomPanel({
                         </button>
                         <button
                           onClick={() => onRejectAction(action.id)}
-                          className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs"
+                          className="px-2 py-1 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded text-xs transition-colors"
                           title="Reddet"
                         >
                           ✗ Reddet
@@ -408,11 +447,14 @@ function BottomPanel({
                       </div>
                     </div>
 
-                    {/* Code preview */}
-                    <div className="mt-2 p-2 bg-[var(--color-surface)] rounded border border-[var(--color-border)]">
+                    {/* Code preview with confidence heatmap */}
+                    <div className={`mt-2 p-2 rounded border transition-colors ${(action as any).confidence >= 90 ? 'bg-green-500/5 border-green-500/20' :
+                      (action as any).confidence >= 70 ? 'bg-yellow-500/5 border-yellow-500/20' :
+                        'bg-red-500/5 border-red-500/20'
+                      }`}>
                       <pre className="text-xs text-neutral-300 whitespace-pre-wrap overflow-x-auto">
-                        {action.content.substring(0, 200)}
-                        {action.content.length > 200 && "..."}
+                        {action.content.substring(0, 300)}
+                        {action.content.length > 300 && "..."}
                       </pre>
                     </div>
                   </div>

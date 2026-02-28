@@ -44,6 +44,13 @@
 - **Visual Project Graph** - Dynamic structure visualization
 - **Accessibility** - High contrast themes and clear typography
 
+### 🌌 Futuristic AI (The Singularity)
+- **Self-Healing & Modifying** - The IDE can write, compile, and upgrade its own source code on the fly.
+- **Legacy Whisperer** - AI Archeology engine to decrypt and modernize ancient codebases (COBOL, Delphi).
+- **Git-Style AI Chat** - Version control your conversations. Branch out and explore parallel dimensions.
+- **Zero Latency & Oracle** - Speculative background compilation and pre-bug prophecy tracking.
+- **Cognitive Tools** - Polyglot Engine, Blackhole GC, Synesthetic View, and Code DNA Splicing for unmatched power.
+
 ---
 
 - **v1.0.0 Release (Milestone Complete)**: 
@@ -58,6 +65,8 @@
 - **UX Excellence**: Premium button styles, smooth animations, and zero-latency chat interface.
 - **Stability Core**: Integrated file recovery mechanism (Safety Backups) before any AI-driven file edit.
 - **Memory Safety**: Global AudioContext management and efficient resource unloading.
+- 🌌 **The Singularity Engine (New in v1.0.0)**: IDE can completely modify its own codebase, predict future technical debt, and compile speculatively.
+- 🧿 **Futuristic Arsenal**: Over 15 built-in advanced SCI-FI tools including *Legacy Whisperer*, *Git-Style Chat Branches*, *Blackhole GC*, *Polyglot Engine*, and *Code Oracle*.
 
 ---
 
@@ -385,6 +394,8 @@ MIT License - see [LICENSE](LICENSE) file
 - [x] **AI Debug Advisor:** Hata ayıklarken canlı değişken ve stack analizi.
 - [x] **VS Code Uyumluluğu:** Tema ve Snippet içe aktarma desteği.
 - [x] **Gelişmiş Ajan Döngüsü:** MCP araçları ile otonom görev yönetimi.
+- [x] **The Singularity Engine:** Kendi kodunu değiştirebilen otonom sistem.
+- [x] **Futuristic Arsenal:** 15+ sci-fi konsept (Git-Style Chat Branches, Legacy Whisperer, vb.)
 
 ### v1.2.0 - Team & Remote (Planlanan)
 - [x] **Remote Development:** SSH/Docker üzerinden uzaktan kodlama.

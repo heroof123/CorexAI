@@ -23,7 +23,7 @@ export async function runBenchmark(
 
   try {
     // Load model if not loaded
-    const { loadGgufModel, chatWithGgufModel } = await import('./ggufProvider');
+    const { loadGgufModel, chatWithGgufModel } = await import('./ai');
 
     // Model yükleme süresi
     const loadStart = performance.now();

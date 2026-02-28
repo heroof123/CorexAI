@@ -3,15 +3,22 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { resetConversation, getConversationContext, getModelIdForRole } from "../services/ai";
+import {
+    resetConversation,
+    getConversationContext,
+    getModelIdForRole,
+    callAI,
+    parseToolCalls,
+    executeTool,
+    getToolsPrompt,
+    requiresApproval,
+    getAutonomyConfig
+} from "../services/ai";
+import { smartContextBuilder } from "../services/smartContextBuilder";
+import { createEmbedding } from "../services/embedding";
 import { saveConversation, getConversation } from "../services/db";
 import { Message, CodeAction, FileIndex } from "../types/index";
 import { CoreMessage } from "../core/protocol";
-import { callAI } from "../services/aiProvider";
-import { smartContextBuilder } from "../services/smartContextBuilder";
-import { createEmbedding } from "../services/embedding";
-import { parseToolCalls, executeTool, getToolsPrompt } from "../services/aiTools";
-import { requiresApproval, getAutonomyConfig } from "../services/autonomy";
 
 // Uzantı → dil eşleştirme tablosu
 const EXTENSION_MAP: Record<string, string> = {
@@ -117,6 +124,8 @@ export function useChatMessages({
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [pendingActions, setPendingActions] = useState<CodeAction[]>([]);
+    const [currentBranch, setCurrentBranch] = useState<string>("main");
+    const [isMentorMode, setIsMentorMode] = useState(false);
     const [toolApprovalRequest, setToolApprovalRequest] = useState<{
         toolName: string;
         parameters: Record<string, unknown>;
@@ -253,23 +262,34 @@ export function useChatMessages({
     const pendingTokenUpdateRef = useRef<{ content: string; requestId: string } | null>(null);
     const tokenUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Konuşmayı yükle (proje değiştiğinde)
+    // Konuşmayı yükle (proje değiştiğinde veya dal değiştiğinde)
     useEffect(() => {
         const loadConversation = async () => {
-            const savedMessages = await getConversation(projectPath);
+            const savedMessages = await getConversation(`${projectPath}_${currentBranch}`);
             if (savedMessages && savedMessages.length > 0) {
                 setMessages(savedMessages);
+            } else if (currentBranch === "main") {
+                // Eski kayıtlar için geriye dönük uyumluluk
+                const oldMessages = await getConversation(projectPath);
+                if (oldMessages && oldMessages.length > 0) {
+                    setMessages(oldMessages);
+                } else {
+                    setMessages([]);
+                }
+            } else {
+                setMessages([]);
             }
         };
         if (projectPath) loadConversation();
-    }, [projectPath]);
+    }, [projectPath, currentBranch]);
 
     // Konuşmayı kaydet (mesajlar değiştiğinde)
     useEffect(() => {
         if (projectPath && messages.length > 0) {
-            saveConversation(projectPath, messages);
+            saveConversation(`${projectPath}_${currentBranch}`, messages);
         }
-    }, [messages, projectPath]);
+    }, [messages, projectPath, currentBranch]);
+
 
     // Core mesajlarını işle (streaming handler)
     useEffect(() => {
@@ -353,6 +373,80 @@ export function useChatMessages({
             setMessages((prev) => [...prev, userMsg]);
             setIsLoading(true);
 
+            // 🚀 INTERCEPT FUTURISTIC COMMANDS 🚀
+            if (userMessage.trim().toLowerCase().startsWith("/branch")) {
+                const parts = userMessage.trim().split(/\s+/);
+                const action = parts[1]?.toLowerCase();
+                const branchName = parts[2];
+                setMessages(prev => prev.slice(0, -1)); // remove optimistic user msg
+                setIsLoading(false);
+
+                if (action === "new" && branchName) {
+                    // Mevcut durumu şu anki dala yazıp yenisini seçiyoruz
+                    saveConversation(`${projectPath}_${currentBranch}`, messages);
+                    setCurrentBranch(branchName);
+                    saveConversation(`${projectPath}_${branchName}`, messages);
+                    setMessages((prev) => [...prev, {
+                        id: generateMessageId("system"),
+                        role: "system",
+                        content: `🌿 Yeni dal (branch) oluşturuldu ve mevcut konuşma buraya kopyalandı: **${branchName}**`,
+                        timestamp: Date.now()
+                    }]);
+                } else if (action === "checkout" && branchName) {
+                    saveConversation(`${projectPath}_${currentBranch}`, messages);
+                    setCurrentBranch(branchName);
+                } else if (action === "status") {
+                    setMessages((prev) => [...prev, {
+                        id: generateMessageId("system"),
+                        role: "system",
+                        content: `🌿 Şu anda aktif olan dal: **${currentBranch}**\nYeni bir dal açmak için: \`/branch new <isim>\`\nBaşka bir dala geçmek için: \`/branch checkout <isim>\``,
+                        timestamp: Date.now()
+                    }]);
+                } else {
+                    setMessages((prev) => [...prev, {
+                        id: generateMessageId("system"),
+                        role: "system",
+                        content: `❌ Hatalı kullanım. Lütfen \`/branch new <isim>\` veya \`/branch checkout <isim>\` veya \`/branch status\` kullanın.`,
+                        timestamp: Date.now()
+                    }]);
+                }
+                return;
+            }
+
+            if (userMessage.trim().toLowerCase().startsWith("/whatif")) {
+                const query = userMessage.trim().replace(/^\/whatif\s*/i, "");
+
+                const assistantMsgId = generateMessageId("assistant");
+                setMessages((prev) => [...prev, { id: assistantMsgId, role: "assistant", content: "🧪 Paralel evren simülasyonu başlatılıyor...", timestamp: Date.now() }]);
+
+                try {
+                    const { WhatIfSandboxService } = await import("../services/whatIfSandbox");
+                    const response = await WhatIfSandboxService.simulateScenario(query, fileIndex);
+                    setMessages((prev) => prev.map(msg => msg.id === assistantMsgId ? { ...msg, content: response } : msg));
+                } catch (e) {
+                    setMessages((prev) => prev.map(msg => msg.id === assistantMsgId ? { ...msg, content: `❌ Hata: ${e}` } : msg));
+                }
+                setIsLoading(false);
+                return;
+            }
+
+            if (userMessage.trim().toLowerCase().startsWith("/singularity")) {
+                const query = userMessage.trim().replace(/^\/singularity\s*/i, "");
+
+                const assistantMsgId = generateMessageId("assistant");
+                setMessages((prev) => [...prev, { id: assistantMsgId, role: "assistant", content: "👑 The Singularity uyanıyor... Kendi kodumu analiz ediyorum, lütfen bekle...", timestamp: Date.now() }]);
+
+                try {
+                    const { SingularityService } = await import("../services/singularity");
+                    const response = await SingularityService.selfModify(query, fileIndex);
+                    setMessages((prev) => prev.map(msg => msg.id === assistantMsgId ? { ...msg, content: response } : msg));
+                } catch (e) {
+                    setMessages((prev) => prev.map(msg => msg.id === assistantMsgId ? { ...msg, content: `❌ Hata: ${e}` } : msg));
+                }
+                setIsLoading(false);
+                return;
+            }
+
             // 2. Semantic Context Retrieval (Hybrid)
             let contextText = "";
             let projectMapText = "";
@@ -425,7 +519,7 @@ export function useChatMessages({
                     setMessages((prev) =>
                         prev.map((msg) => (msg.id === msgId ? { ...msg, content: accumulatedResponse } : msg))
                     );
-                });
+                }, isMentorMode);
 
                 // 🔧 TOOL SYSTEM - Parse and execute tools
                 const toolCallsOpt = parseToolCalls(accumulatedResponse);
@@ -512,7 +606,7 @@ export function useChatMessages({
                         setMessages((prev) =>
                             prev.map((msg) => (msg.id === nextMsgId ? { ...msg, content: accumulatedResponse } : msg))
                         );
-                    });
+                    }, isMentorMode);
 
                     const nextToolCalls = parseToolCalls(accumulatedResponse);
                     toolCall = nextToolCalls.length > 0 ? nextToolCalls[0] : null;
@@ -571,10 +665,22 @@ export function useChatMessages({
         return getConversationContext().projectContext;
     }, []);
 
+    // 🤖 Autonomous Heal Listener
+    useEffect(() => {
+        const handleAutoHeal = (e: any) => {
+            const { error } = e.detail;
+            sendMessage(`🤖 **OTONOM İYİLEŞTİRME BAŞLATILDI**\n\nTespit edilen hata:\n\`\`\`\n${error}\n\`\`\`\n\nLütfen bu hatayı analiz et ve gerekli araçları kullanarak çöz.`);
+        };
+        window.addEventListener('corex-autofix-start', handleAutoHeal);
+        return () => window.removeEventListener('corex-autofix-start', handleAutoHeal);
+    }, [sendMessage]);
+
     return {
         messages,
         isLoading,
         pendingActions,
+        isMentorMode,
+        setIsMentorMode,
         toolApprovalRequest,
         isCoreStreaming,
         setMessages,
@@ -586,6 +692,7 @@ export function useChatMessages({
         handleRegenerateResponse,
         handleNewSession,
         getProjectContext,
+        currentBranch, // Added for potential UI exposure
     };
 }
 

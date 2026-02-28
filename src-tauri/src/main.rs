@@ -6,7 +6,7 @@
 // Use modules from lib
 use corex_lib::{
     collab, commands, docker, gguf, git_commands, mcp, oauth, oauth_backend, 
-    remote, streaming, window_manager
+    remote, streaming, window_manager, p2p
 };
 use corex_lib::process_monitor::{ProcessMonitor, MonitorState};
 use corex_lib::gguf::GgufState;
@@ -36,12 +36,18 @@ pub fn run() {
     // Collaboration state oluştur
     let collab_state = CollabState::default();
     // Process monitor state oluştur
+    pub use corex_lib::p2p::P2PState;
+    let p2p_state = P2PState {
+        peers: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+        port: 8090,
+    };
     let monitor_state = MonitorState(Arc::new(Mutex::new(None)));
 
     tauri::Builder::default()
         .manage(gguf_state.clone())
         .manage(mcp_state)
         .manage(collab_state)
+        .manage(p2p_state)
         .manage(monitor_state.clone())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -152,12 +158,21 @@ pub fn run() {
             remote::remote_ssh_connect,
             remote::remote_ssh_list_dir,
             remote::remote_ssh_read_file,
+            remote::remote_ssh_exec_command,
+            remote::remote_ssh_upload,
+            remote::remote_ssh_download,
+            remote::remote_ssh_create_dir,
+            remote::remote_ssh_delete_file,
             // Docker integration commands
             docker::docker_list_containers,
             docker::docker_list_images,
             docker::docker_container_action,
             docker::docker_remove_image,
             docker::docker_compose_action,
+            // P2P Sync commands
+            p2p::p2p_start_node,
+            p2p::p2p_discover_peers,
+            p2p::p2p_send_sync,
         ])
         .on_window_event(move |_window, event| {
             if let tauri::WindowEvent::Destroyed = event {

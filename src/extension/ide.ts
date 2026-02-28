@@ -1,7 +1,7 @@
 // extension/ide.ts
 // IDE Interface - Provides IDE operations to Core
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from "@tauri-apps/api/core";
 
 /**
  * IDE Interface
@@ -9,19 +9,19 @@ import { invoke } from '@tauri-apps/api/core';
  */
 export class IDEInterface {
   constructor() {
-    console.log('💻 IDEInterface: Initialized');
+    console.log("💻 IDEInterface: Initialized");
   }
-  
+
   // ============================================================================
   // File Operations
   // ============================================================================
-  
+
   /**
    * Read file contents
    */
   async readFile(path: string): Promise<string> {
     try {
-      const content = await invoke<string>('read_file', { path });
+      const content = await invoke<string>("read_file", { path });
       console.log(`📖 IDEInterface: Read file: ${path}`);
       return content;
     } catch (error) {
@@ -29,26 +29,26 @@ export class IDEInterface {
       throw error;
     }
   }
-  
+
   /**
    * Write file contents
    */
   async writeFile(path: string, content: string): Promise<void> {
     try {
-      await invoke('write_file', { path, content });
+      await invoke("write_file", { path, content });
       console.log(`✏️ IDEInterface: Wrote file: ${path}`);
     } catch (error) {
       console.error(`❌ IDEInterface: Failed to write file: ${path}`, error);
       throw error;
     }
   }
-  
+
   /**
    * List files in directory
    */
   async listFiles(path: string): Promise<string[]> {
     try {
-      const files = await invoke<string[]>('list_files', { path });
+      const files = await invoke<string[]>("list_files", { path });
       console.log(`📂 IDEInterface: Listed ${files.length} files in: ${path}`);
       return files;
     } catch (error) {
@@ -56,7 +56,7 @@ export class IDEInterface {
       throw error;
     }
   }
-  
+
   /**
    * Check if file exists
    */
@@ -68,55 +68,69 @@ export class IDEInterface {
       return false;
     }
   }
-  
+
   // ============================================================================
-  // Editor Operations (Future)
+  // Editor Operations
   // ============================================================================
-  
+
   /**
    * Open file in editor
-   * TODO: Implement when editor integration is ready
+   * Dispatches event that the GUI can listen to
    */
   async openFile(path: string): Promise<void> {
     console.log(`📄 IDEInterface: Open file requested: ${path}`);
-    // This would emit an event to the GUI to open the file
-    // For now, just log
+    // Dispatch event for GUI to handle
+    window.dispatchEvent(
+      new CustomEvent("corex-open-file", {
+        detail: { path },
+      })
+    );
   }
-  
+
   /**
    * Get currently active file
-   * TODO: Implement when editor integration is ready
+   * Returns the last opened file path from localStorage
    */
   async getActiveFile(): Promise<string | null> {
-    console.log('📍 IDEInterface: Get active file requested');
-    // This would query the GUI for the active file
-    // For now, return null
-    return null;
+    try {
+      const activeFile = localStorage.getItem("corex_active_file");
+      return activeFile || null;
+    } catch {
+      return null;
+    }
   }
-  
+
   /**
    * Get all open files
-   * TODO: Implement when editor integration is ready
+   * Returns array of open files from localStorage
    */
   async getOpenFiles(): Promise<string[]> {
-    console.log('📑 IDEInterface: Get open files requested');
-    // This would query the GUI for open files
-    // For now, return empty array
-    return [];
+    try {
+      const openFiles = localStorage.getItem("corex_open_files");
+      return openFiles ? JSON.parse(openFiles) : [];
+    } catch {
+      return [];
+    }
   }
-  
+
   // ============================================================================
-  // Terminal Operations (Future)
+  // Terminal Operations
   // ============================================================================
-  
+
   /**
    * Execute terminal command
-   * TODO: Implement when terminal integration is ready
+   * Dispatches event that the terminal panel can handle
    */
   async executeCommand(command: string): Promise<string> {
     console.log(`⚡ IDEInterface: Execute command requested: ${command}`);
-    // This would execute a command in the terminal
-    // For now, just log
-    return '';
+
+    // Dispatch event for terminal to handle
+    window.dispatchEvent(
+      new CustomEvent("corex-execute-command", {
+        detail: { command },
+      })
+    );
+
+    return "Command dispatched to terminal";
   }
 }

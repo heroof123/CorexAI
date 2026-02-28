@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { aiDebugService, DebugState } from '../services/aiDebugService';
-import { callAI } from '../services/aiProvider';
+import { callAI } from '../services/ai';
 import { getModelIdForRole } from '../services/ai';
 import { Bug, Sparkles, Play } from 'lucide-react';
 

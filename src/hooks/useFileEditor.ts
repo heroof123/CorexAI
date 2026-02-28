@@ -125,16 +125,14 @@ export function useFileEditor({
       await invoke("write_file", { path: selectedFile, content: fileContent });
       smartContextBuilder.trackFileEdit(selectedFile);
 
-      // Tab içeriğini güncelle
       setOpenTabs(prev =>
         prev.map(tab => (tab.path === selectedFile ? { ...tab, content: fileContent } : tab))
       );
 
-      import("../services/ragService").then(({ ragService }) => {
+      import("../services/ai").then(({ ragService }) => {
         ragService.indexFile(selectedFile).catch(err => console.error("RAG Index Error:", err));
       });
 
-      // Index güncelle (embedding arka planda)
       const idx = fileIndex.findIndex(f => f.path === selectedFile);
       if (idx !== -1) {
         const embedding = await createEmbedding(fileContent);
@@ -160,9 +158,15 @@ export function useFileEditor({
       setHasUnsavedChanges(false);
       onMessage({
         role: "system",
-        content: `✅ Kaydedildi: ${selectedFile}`,
+        content: `✅ Kaydedildi: ${selectedFile.split(/[\\\/]/).pop()}`,
         timestamp: Date.now(),
       });
+
+      // Trigger Living Documentation Update (Background)
+      import("../services/livingDocumentation").then(({ livingDocsService }) => {
+        livingDocsService.updateDocumentation(projectPath, selectedFile, fileContent);
+      }).catch(console.error);
+
     } catch (err) {
       console.error("Dosya yazma hatası:", err);
       onNotification("error", "Kaydetme Hatası", `Dosya kaydedilemedi: ${err}`);

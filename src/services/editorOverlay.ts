@@ -1,11 +1,12 @@
 // src/services/editorOverlay.ts
 // Editor Reasoning Overlay - Monaco decorations for AI insights
 
-import * as monaco from 'monaco-editor';
-import type { CodeInsight } from '../types/ai-native';
-import { backgroundReasoner } from './backgroundReasoner';
-import { smartCodeLensProvider } from './codeLensProvider';
-import { predictiveService } from './predictiveService';
+import * as monaco from "monaco-editor";
+import type { CodeInsight } from "../types/ai-native";
+import { backgroundReasoner } from "./backgroundReasoner";
+import { smartCodeLensProvider } from "./codeLensProvider";
+import { predictiveService } from "./predictiveService";
+import { SymbolResolver } from "./symbolResolver";
 
 /**
  * Editor Overlay
@@ -15,6 +16,7 @@ export class EditorOverlay {
   private editor: monaco.editor.IStandaloneCodeEditor;
   private decorations: string[] = [];
   private dismissedInsights: Set<string> = new Set();
+  private symbolResolver: SymbolResolver = new SymbolResolver();
 
   constructor(editor: monaco.editor.IStandaloneCodeEditor) {
     this.editor = editor;
@@ -49,15 +51,12 @@ export class EditorOverlay {
 
       decorationOptions.push({
         range,
-        options
+        options,
       });
     });
 
     // 🆕 TASK 20.1: Update decorations within 500ms
-    this.decorations = this.editor.deltaDecorations(
-      this.decorations,
-      decorationOptions
-    );
+    this.decorations = this.editor.deltaDecorations(this.decorations, decorationOptions);
 
     console.log(`🎨 Updated ${decorationOptions.length} decorations`);
   }
@@ -71,23 +70,23 @@ export class EditorOverlay {
       glyphMarginClassName: this.getGlyphClass(insight),
       hoverMessage: {
         value: this.formatHoverMessage(insight),
-        isTrusted: true
+        isTrusted: true,
       },
       minimap: {
         color: this.getMinimapColor(insight),
-        position: monaco.editor.MinimapPosition.Inline
-      }
+        position: monaco.editor.MinimapPosition.Inline,
+      },
     };
 
     // 🆕 TASK 12.2, 12.4: Add underline for errors/warnings
-    if (insight.severity === 'error') {
-      baseOptions.className = 'corex-error-decoration';
-      baseOptions.inlineClassName = 'corex-error-inline';
-    } else if (insight.severity === 'warning') {
-      baseOptions.className = 'corex-warning-decoration';
-      baseOptions.inlineClassName = 'corex-warning-inline';
+    if (insight.severity === "error") {
+      baseOptions.className = "corex-error-decoration";
+      baseOptions.inlineClassName = "corex-error-inline";
+    } else if (insight.severity === "warning") {
+      baseOptions.className = "corex-warning-decoration";
+      baseOptions.inlineClassName = "corex-warning-inline";
     } else {
-      baseOptions.className = 'corex-info-decoration';
+      baseOptions.className = "corex-info-decoration";
     }
 
     return baseOptions;
@@ -98,14 +97,14 @@ export class EditorOverlay {
    */
   private getGlyphClass(insight: CodeInsight): string {
     switch (insight.severity) {
-      case 'error':
-        return 'corex-glyph-error';
-      case 'warning':
-        return 'corex-glyph-warning';
-      case 'info':
-        return 'corex-glyph-lightbulb';
+      case "error":
+        return "corex-glyph-error";
+      case "warning":
+        return "corex-glyph-warning";
+      case "info":
+        return "corex-glyph-lightbulb";
       default:
-        return '';
+        return "";
     }
   }
 
@@ -114,14 +113,14 @@ export class EditorOverlay {
    */
   private getMinimapColor(insight: CodeInsight): string {
     switch (insight.severity) {
-      case 'error':
-        return '#ff0000';
-      case 'warning':
-        return '#ffa500';
-      case 'info':
-        return '#00bfff';
+      case "error":
+        return "#ff0000";
+      case "warning":
+        return "#ffa500";
+      case "info":
+        return "#00bfff";
       default:
-        return '#808080';
+        return "#808080";
     }
   }
 
@@ -129,8 +128,7 @@ export class EditorOverlay {
    * Format hover message
    */
   private formatHoverMessage(insight: CodeInsight): string {
-    const icon = insight.severity === 'error' ? '❌' :
-      insight.severity === 'warning' ? '⚠️' : 'ℹ️';
+    const icon = insight.severity === "error" ? "❌" : insight.severity === "warning" ? "⚠️" : "ℹ️";
 
     return `${icon} **${insight.category}**: ${insight.message}\n\n[Dismiss](command:corex.dismissInsight?${this.getInsightKey(insight)})`;
   }
@@ -139,7 +137,7 @@ export class EditorOverlay {
    * 🆕 TASK 12.8: Register hover provider for symbol information
    */
   private registerHoverProvider(): void {
-    monaco.languages.registerHoverProvider('typescript', {
+    monaco.languages.registerHoverProvider("typescript", {
       provideHover: async (model, position) => {
         const word = model.getWordAtPosition(position);
         if (!word) return null;
@@ -150,7 +148,7 @@ export class EditorOverlay {
 
         const contents: monaco.IMarkdownString[] = [
           { value: `**${symbolInfo.name}** (${symbolInfo.kind})`, isTrusted: true },
-          { value: `\`\`\`typescript\n${symbolInfo.signature}\n\`\`\``, isTrusted: true }
+          { value: `\`\`\`typescript\n${symbolInfo.signature}\n\`\`\``, isTrusted: true },
         ];
 
         if (symbolInfo.documentation) {
@@ -168,25 +166,39 @@ export class EditorOverlay {
             word.startColumn,
             position.lineNumber,
             word.endColumn
-          )
+          ),
         };
-      }
+      },
     });
   }
 
   /**
-   * Get symbol information (placeholder - would integrate with SymbolResolver)
+   * Get symbol information using SymbolResolver
    */
-  private async getSymbolInfo(_symbolName: string): Promise<any | null> {
-    // TODO: Integrate with SymbolResolver
-    return null;
+  private async getSymbolInfo(symbolName: string): Promise<any | null> {
+    try {
+      // Resolve symbol definition
+      const definition = this.symbolResolver.resolveDefinition(symbolName);
+      if (definition) {
+        return {
+          name: symbolName,
+          definition,
+          references: this.symbolResolver.findReferences(symbolName),
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Failed to get symbol info:", error);
+      return null;
+    }
   }
 
   /**
    * 🆕 TASK 12.10: Register code action provider for quick fixes
    */
   private registerCodeActionProvider(): void {
-    monaco.languages.registerCodeActionProvider('typescript', {
+    monaco.languages.registerCodeActionProvider("typescript", {
       provideCodeActions: (model, range, _context) => {
         const actions: monaco.languages.CodeAction[] = [];
 
@@ -196,34 +208,34 @@ export class EditorOverlay {
         const relevantInsights = insights.filter(i => i.line === line);
 
         relevantInsights.forEach(insight => {
-          if (insight.category === 'complexity') {
+          if (insight.category === "complexity") {
             actions.push({
-              title: '💡 Refactor to reduce complexity',
-              kind: 'quickfix',
+              title: "💡 Refactor to reduce complexity",
+              kind: "quickfix",
               diagnostics: [],
               edit: {
-                edits: []
-              }
+                edits: [],
+              },
             });
           }
 
-          if (insight.category === 'smell') {
+          if (insight.category === "smell") {
             actions.push({
-              title: '🧹 Extract function',
-              kind: 'refactor',
+              title: "🧹 Extract function",
+              kind: "refactor",
               diagnostics: [],
               edit: {
-                edits: []
-              }
+                edits: [],
+              },
             });
           }
         });
 
         return {
           actions,
-          dispose: () => { }
+          dispose: () => {},
         };
-      }
+      },
     });
   }
 
@@ -232,20 +244,20 @@ export class EditorOverlay {
    */
   private registerCodeLensProvider(): void {
     // Register for standard languages
-    const languages = ['typescript', 'javascript', 'typescriptreact', 'javascriptreact'];
+    const languages = ["typescript", "javascript", "typescriptreact", "javascriptreact"];
 
     languages.forEach(lang => {
       monaco.languages.registerCodeLensProvider(lang, smartCodeLensProvider);
     });
 
-    console.log('💎 Smart Code Lens Provider registered for:', languages.join(', '));
+    console.log("💎 Smart Code Lens Provider registered for:", languages.join(", "));
   }
 
   /**
    * 🔮 Register Predictive Inline Completion Provider (Ghost Text)
    */
   private registerInlineCompletionProvider(): void {
-    const languages = ['typescript', 'javascript', 'typescriptreact', 'javascriptreact'];
+    const languages = ["typescript", "javascript", "typescriptreact", "javascriptreact"];
 
     languages.forEach(lang => {
       monaco.languages.registerInlineCompletionsProvider(lang, {
@@ -271,16 +283,16 @@ export class EditorOverlay {
                   position.column,
                   position.lineNumber,
                   position.column
-                )
-              }
-            ]
+                ),
+              },
+            ],
           };
         },
-        disposeInlineCompletions: () => { }
+        disposeInlineCompletions: () => {},
       });
     });
 
-    console.log('🔮 Predictive Ghost Text registered for:', languages.join(', '));
+    console.log("🔮 Predictive Ghost Text registered for:", languages.join(", "));
   }
 
   /**
@@ -309,12 +321,12 @@ export class EditorOverlay {
    */
   private loadDismissedInsights(): void {
     try {
-      const stored = localStorage.getItem('corex-dismissed-insights');
+      const stored = localStorage.getItem("corex-dismissed-insights");
       if (stored) {
         this.dismissedInsights = new Set(JSON.parse(stored));
       }
     } catch (error) {
-      console.warn('Failed to load dismissed insights:', error);
+      console.warn("Failed to load dismissed insights:", error);
     }
   }
 
@@ -324,9 +336,9 @@ export class EditorOverlay {
   private saveDismissedInsights(): void {
     try {
       const array = Array.from(this.dismissedInsights);
-      localStorage.setItem('corex-dismissed-insights', JSON.stringify(array));
+      localStorage.setItem("corex-dismissed-insights", JSON.stringify(array));
     } catch (error) {
-      console.warn('Failed to save dismissed insights:', error);
+      console.warn("Failed to save dismissed insights:", error);
     }
   }
 
@@ -335,7 +347,7 @@ export class EditorOverlay {
    */
   clearDecorations(): void {
     this.decorations = this.editor.deltaDecorations(this.decorations, []);
-    console.log('🗑️ Cleared all decorations');
+    console.log("🗑️ Cleared all decorations");
   }
 
   /**
@@ -344,6 +356,6 @@ export class EditorOverlay {
   clearDismissed(): void {
     this.dismissedInsights.clear();
     this.saveDismissedInsights();
-    console.log('🗑️ Cleared dismissed insights');
+    console.log("🗑️ Cleared dismissed insights");
   }
 }

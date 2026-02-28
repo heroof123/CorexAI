@@ -17,6 +17,12 @@ import PluginMarketplace from "./PluginMarketplace";
 import InteractiveAcademy from "./InteractiveAcademy";
 import { AIDebugAdvisor } from "./AIDebugAdvisor";
 import { aiDebugService } from "../services/aiDebugService";
+import { SyncPanel } from "./SyncPanel";
+import { SketchCanvas } from "./SketchCanvas";
+import { SemanticLinterView } from "./SemanticLinterView";
+import { PolyglotView } from "./PolyglotView";
+import { StartupGenView } from "./StartupGenView";
+
 
 interface SidePanelProps {
   activeView: string;
@@ -460,12 +466,22 @@ export default function SidePanel({
         return <ModelRoulette />;
       case "academy":
         return <InteractiveAcademy selectedFile={selectedFile} />;
+      case 'sync':
+        return <SyncPanel />;
       case "compare":
         return (
           <div className="p-4 text-xs text-neutral-400">
             Model karşılaştırma modu aktif. Ana panelden devam edin.
           </div>
         );
+      case "semantic-linter":
+        return <SemanticLinterView />;
+      case "sketch-to-code":
+        return <SketchCanvas />;
+      case "polyglot":
+        return <PolyglotView />;
+      case "startup-gen":
+        return <StartupGenView />;
 
       default:
         return null;

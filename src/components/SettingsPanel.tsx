@@ -3,6 +3,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import { useLayout } from "../contexts/LayoutContext";
 import LanguageSelector from "./LanguageSelector";
 import { useLanguage } from "../contexts/LanguageContext";
+import { getAutonomyConfig, saveAutonomyConfig, getAutonomyLevelDescription, AutonomyLevel } from "../services/ai";
 
 interface Settings {
   editor: {
@@ -328,11 +329,10 @@ export default function SettingsPanel({
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-between group ${
-                    activeTab === tab.id
-                      ? "bg-blue-500/10 text-white border border-blue-500/30 neon-glow-blue"
-                      : "text-white/70 hover:text-white hover:bg-[var(--color-surface)]"
-                  }`}
+                  className={`w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-between group ${activeTab === tab.id
+                    ? "bg-blue-500/10 text-white border border-blue-500/30 neon-glow-blue"
+                    : "text-white/70 hover:text-white hover:bg-[var(--color-surface)]"
+                    }`}
                 >
                   <div className="flex items-center gap-3">
                     <span
@@ -583,7 +583,38 @@ export default function SettingsPanel({
                       </div>
                     </div>
 
-                    <div className="space-y-4">
+                    <div className="border-t border-white/5 pt-8">
+                      <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-white/60 mb-6">
+                        Otonomi Sistemi
+                      </h4>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-[11px] font-bold text-white/70 uppercase tracking-widest mb-3 px-1">
+                            Otonomi Seviyesi (Level 1-5)
+                          </label>
+                          <select
+                            value={getAutonomyConfig().level}
+                            onChange={e => {
+                              const level = Number(e.target.value) as AutonomyLevel;
+                              saveAutonomyConfig({ level });
+                              setSettings({ ...settings });
+                            }}
+                            className="w-full px-4 py-3 bg-[var(--color-surface)] border-[var(--color-border)] rounded-xl text-white font-bold tracking-tight focus:border-red-500 transition-all outline-none"
+                          >
+                            <option value={1}>Seviye 1: Sadece Chat</option>
+                            <option value={2}>Seviye 2: Öneriler</option>
+                            <option value={3}>Seviye 3: Dengeli (Varsayılan)</option>
+                            <option value={4}>Seviye 4: Otomatik Toollar</option>
+                            <option value={5}>Seviye 5: Tam Otonom (Tehlikeli!)</option>
+                          </select>
+                          <p className="mt-2 text-[10px] text-neutral-500 italic px-1">
+                            {getAutonomyLevelDescription(getAutonomyConfig().level)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 pt-4">
                       <label className="flex items-center justify-between px-5 py-4 bg-[var(--color-surface)] border-[var(--color-border)] rounded-2xl cursor-pointer hover:bg-white/10 transition-all group">
                         <span className="text-xs font-bold text-white/70 group-hover:text-white transition-colors tracking-tight">
                           {t("settings.autoSuggestions")}

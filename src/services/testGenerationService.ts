@@ -1,6 +1,6 @@
 // src/services/testGenerationService.ts
 import { invoke } from "@tauri-apps/api/core";
-import { callAI } from "./aiProvider";
+import { callAI } from "./ai";
 
 export interface TestGenRequest {
     filePath: string;

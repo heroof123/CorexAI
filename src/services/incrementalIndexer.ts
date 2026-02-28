@@ -3,7 +3,7 @@ import { createEmbedding, shouldIndexFile, getEmbeddingEndpoint } from "./embedd
 import { cacheManager, generateFileCacheKey } from "./cache";
 import { FileIndex } from "../types/index";
 import { gitIntelligence } from "./gitIntelligence";
-import { ragService } from "./ragService";
+import { ragService } from "./ai";
 
 interface IndexingResult {
   indexed: FileIndex[];

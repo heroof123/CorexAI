@@ -37,6 +37,7 @@ rand = "0.8" # 🆕 Random sampling for temperature-based generation
 sysinfo = "0.30" # 🆕 Sistem bilgisi (RAM, CPU) almak için
 ssh2 = "0.9" # 🆕 SSH/SFTP bağlantıları için
 bollard = "0.15" # 🆕 Docker API entegrasyonu için
+if-addrs = "0.7" # 🆕 Network interface tespiti için
 
 # 🆕 WebSocket Real-time Collaboration
 tokio-tungstenite = "0.23"

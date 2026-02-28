@@ -30,6 +30,8 @@ interface ChatPanelProps {
   onRegenerateResponse?: () => void;
   isStreaming?: boolean;
   modelName?: string;
+  isMentorMode?: boolean;
+  onMentorModeToggle?: (enabled: boolean) => void;
 }
 
 // ─── Yardımcı: panoya kopyala ────────────────────────────────────────────────
@@ -1204,7 +1206,7 @@ function saveSession(session: StoredSession) {
 }
 
 // ─── Ana ChatPanel ────────────────────────────────────────────────────────────
-function ChatPanel({
+export default function ChatPanel({
   messages,
   isLoading,
   onSendMessage,
@@ -1220,6 +1222,8 @@ function ChatPanel({
   onRegenerateResponse,
   isStreaming = false,
   modelName = "Corex AI",
+  isMentorMode = false,
+  onMentorModeToggle,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [isPendingExpanded, setIsPendingExpanded] = useState(true);
@@ -1402,10 +1406,18 @@ function ChatPanel({
               <button
                 onClick={onNewSession}
                 className="px-2 py-1 text-[10px] text-neutral-400 hover:text-white rounded hover:bg-neutral-800 transition-colors"
+                title="Yeni Oturum"
               >
                 Yeni
               </button>
             )}
+            <button
+              onClick={() => onMentorModeToggle?.(!isMentorMode)}
+              className={`px-2 py-1 text-[10px] rounded transition-all flex items-center gap-1.5 ${isMentorMode ? 'bg-blue-600/20 text-blue-400 font-bold border border-blue-500/30' : 'text-neutral-500 hover:text-white hover:bg-neutral-800'}`}
+              title="Sokratik Mentor Modu"
+            >
+              {isMentorMode ? '🧠 Mentor: Açık' : '🧠 Mentor'}
+            </button>
           </div>
         </div>
       </div>
@@ -1677,4 +1689,3 @@ function ChatPanel({
   );
 }
 
-export default memo(ChatPanel);

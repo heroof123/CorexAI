@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 
 interface Props {
   children: React.ReactNode;
@@ -16,7 +16,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
     this.state = {
       hasError: false,
       error: null,
-      errorInfo: null
+      errorInfo: null,
     };
   }
 
@@ -25,16 +25,41 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('🚨 Error caught by boundary:', error);
-    console.error('📍 Component stack:', errorInfo.componentStack);
-    
+    console.error("🚨 Error caught by boundary:", error);
+    console.error("📍 Component stack:", errorInfo.componentStack);
+
     this.setState({
       error,
-      errorInfo
+      errorInfo,
     });
-    
-    // TODO: Send to error tracking service (Sentry, etc.)
-    // this.logErrorToService(error, errorInfo);
+
+    // Show browser notification if permitted
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("Uygulama Hatası", {
+        body: error.message || "Bilinmeyen bir hata oluştu",
+        icon: "/favicon.ico",
+      });
+    } else if ("Notification" in window && Notification.permission !== "denied") {
+      Notification.requestPermission().then(permission => {
+        if (permission === "granted") {
+          new Notification("Uygulama Hatası", {
+            body: error.message || "Bilinmeyen bir hata oluştu",
+            icon: "/favicon.ico",
+          });
+        }
+      });
+    }
+
+    // Log to localStorage for user review
+    const errorLog = JSON.parse(localStorage.getItem("corex-error-log") || "[]");
+    errorLog.push({
+      message: error.message,
+      stack: error.stack,
+      componentStack: errorInfo.componentStack,
+      timestamp: new Date().toISOString(),
+    });
+    // Keep last 10 errors
+    localStorage.setItem("corex-error-log", JSON.stringify(errorLog.slice(-10)));
   }
 
   handleReload = () => {
@@ -45,7 +70,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
     this.setState({
       hasError: false,
       error: null,
-      errorInfo: null
+      errorInfo: null,
     });
   };
 
@@ -74,7 +99,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
               <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
                 <h3 className="font-semibold text-red-600 mb-2">Hata Detayı:</h3>
                 <p className="text-sm font-mono text-[var(--color-text)] break-all">
-                  {this.state.error?.message || 'Bilinmeyen hata'}
+                  {this.state.error?.message || "Bilinmeyen hata"}
                 </p>
               </div>
 

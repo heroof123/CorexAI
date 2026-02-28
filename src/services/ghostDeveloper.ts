@@ -225,7 +225,7 @@ export class GhostDeveloper {
       highComplexityFiles,
       unusedExports,
       circularDependencies,
-      duplicateCode: 0 // TODO: Implement
+      duplicateCode: this.countDuplicateBlocks(analyses)
     };
   }
 
@@ -625,6 +625,39 @@ export class GhostDeveloper {
     });
 
     return cycleCount;
+  }
+
+  /**
+   * 🔁 Count duplicate code blocks (hash-based sliding window)
+   */
+  private countDuplicateBlocks(analyses: FileAnalysis[]): number {
+    const WINDOW = 5; // minimum lines to be considered a duplicate block
+    const hashCount = new Map<string, number>();
+
+    for (const analysis of analyses) {
+      // Use symbols as proxy — extract normalized content snippets from symbol bodies
+      const symbolLines = analysis.symbols
+        .filter(s => s.kind === 'function' || s.kind === 'class')
+        .map(s => `${s.kind}:${(s as any).body || s.name}`.toLowerCase().replace(/\s+/g, ' ').trim());
+
+      // Sliding window hash
+      for (let i = 0; i <= symbolLines.length - WINDOW; i++) {
+        const block = symbolLines.slice(i, i + WINDOW).join('\n');
+        // Simple djb2-style hash
+        let hash = 5381;
+        for (let j = 0; j < block.length; j++) {
+          hash = ((hash << 5) + hash) ^ block.charCodeAt(j);
+          hash = hash & hash; // 32-bit
+        }
+        const key = String(hash);
+        hashCount.set(key, (hashCount.get(key) || 0) + 1);
+      }
+    }
+
+    // Count blocks that appear in more than one place
+    let duplicates = 0;
+    hashCount.forEach(count => { if (count > 1) duplicates += count - 1; });
+    return duplicates;
   }
 
   /**

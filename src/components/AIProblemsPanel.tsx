@@ -4,6 +4,8 @@
 
 import { useState } from 'react';
 import type { FileAnalysisResult, AIIssue } from '../hooks/useAIBackgroundAnalysis';
+import { MirrorDebugger } from './MirrorDebugger';
+import { collectiveIntelligenceService, ErrorInsight } from '../services/collectiveIntelligence';
 
 interface AIProblemsPanelProps {
     isOpen: boolean;
@@ -29,6 +31,11 @@ export default function AIProblemsPanel({
     onFileClick,
 }: AIProblemsPanelProps) {
     const [tab, setTab] = useState<PanelTab>('current');
+
+    // Feature States
+    const [mirrorSubject, setMirrorSubject] = useState<{ code: string, error: string } | null>(null);
+    const [ciLoadingId, setCiLoadingId] = useState<string | null>(null);
+    const [ciResults, setCiResults] = useState<Record<string, ErrorInsight[]>>({});
 
     const allIssues = allResults.flatMap(r => r.issues);
     const criticalCount = allIssues.filter(i => i.severity === 'high').length;
@@ -194,28 +201,77 @@ export default function AIProblemsPanel({
                                             const style = severityStyle(issue.severity);
                                             return (
                                                 <div key={idx} style={{
-                                                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                                                    display: 'flex', flexDirection: 'column',
                                                     padding: '7px 16px',
                                                     borderBottom: '1px solid var(--color-border)10',
                                                     cursor: 'default',
                                                 }}>
-                                                    <span style={{ fontSize: 13, flexShrink: 0, marginTop: 1 }}>{style.label}</span>
-                                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                                        <span style={{ fontSize: 12 }}>{issue.message}</span>
-                                                    </div>
-                                                    {issue.line > 0 && (
-                                                        <code style={{
+                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                                                        <span style={{ fontSize: 13, flexShrink: 0, marginTop: 1 }}>{style.label}</span>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <span style={{ fontSize: 12 }}>{issue.message}</span>
+                                                        </div>
+                                                        {issue.line > 0 && (
+                                                            <code style={{
+                                                                fontSize: 10, flexShrink: 0,
+                                                                background: 'var(--color-background)',
+                                                                padding: '1px 5px', borderRadius: 3,
+                                                                color: 'var(--color-textSecondary)',
+                                                            }}>:{issue.line}</code>
+                                                        )}
+                                                        <span style={{
                                                             fontSize: 10, flexShrink: 0,
-                                                            background: 'var(--color-background)',
-                                                            padding: '1px 5px', borderRadius: 3,
-                                                            color: 'var(--color-textSecondary)',
-                                                        }}>:{issue.line}</code>
+                                                            padding: '1px 6px', borderRadius: 3,
+                                                            background: style.bg, color: style.color,
+                                                        }}>{issue.type}</span>
+                                                    </div>
+
+                                                    {/* Futuristic Tools row */}
+                                                    <div style={{ marginLeft: 36, marginTop: 4, display: 'flex', gap: 8 }}>
+                                                        <button
+                                                            onClick={() => setMirrorSubject({ code: `// File: ${currentFileResult.fileName}\n// Line: ${issue.line}`, error: issue.message })}
+                                                            style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: '#4f46e530', color: '#818cf8', border: '1px solid #4f46e550', cursor: 'pointer' }}
+                                                        >
+                                                            🪞 Mirror Debug
+                                                        </button>
+                                                        <button
+                                                            onClick={async () => {
+                                                                const id = `${currentFileResult.filePath}-${idx}`;
+                                                                setCiLoadingId(id);
+                                                                const results = await collectiveIntelligenceService.analyzeError(issue.message, "");
+                                                                setCiResults(prev => ({ ...prev, [id]: results }));
+                                                                setCiLoadingId(null);
+                                                            }}
+                                                            style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: '#0ea5e930', color: '#38bdf8', border: '1px solid #0ea5e950', cursor: 'pointer' }}
+                                                        >
+                                                            {ciLoadingId === `${currentFileResult.filePath}-${idx}` ? '🌐 İnternette Aranıyor...' : '🌐 İnternette Çözüm Ara'}
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Collective Intelligence Results */}
+                                                    {ciResults[`${currentFileResult.filePath}-${idx}`] && (
+                                                        <div style={{ marginLeft: 36, marginTop: 8, padding: 8, background: 'rgba(0,0,0,0.2)', borderRadius: 6, borderLeft: '2px solid #38bdf8' }}>
+                                                            <div style={{ fontSize: 10, color: '#38bdf8', marginBottom: 6, fontWeight: 600 }}>Kolektif Zeka (İnternet Tarama Sonuçları)</div>
+                                                            {ciResults[`${currentFileResult.filePath}-${idx}`].length === 0 ? (
+                                                                <div style={{ fontSize: 11, color: '#aaa' }}>İnternette bu hatayla ilgili çözüm bulunamadı.</div>
+                                                            ) : (
+                                                                ciResults[`${currentFileResult.filePath}-${idx}`].map((res, i) => (
+                                                                    <div key={i} style={{
+                                                                        marginBottom: 6,
+                                                                        background: res.isSafe ? 'transparent' : 'rgba(239, 68, 68, 0.1)',
+                                                                        borderLeft: res.isSafe ? 'none' : '2px solid #ef4444',
+                                                                        padding: res.isSafe ? 0 : 6,
+                                                                        borderRadius: res.isSafe ? 0 : 4
+                                                                    }}>
+                                                                        <a href={res.link} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: res.isSafe ? '#60a5fa' : '#ef4444', textDecoration: res.isSafe ? 'none' : 'line-through', display: 'block', marginBottom: 2 }}>
+                                                                            {res.isSafe ? res.title : `☠️ [ENGELLENDİ] ${res.title}`}
+                                                                        </a>
+                                                                        <div style={{ fontSize: 10, color: res.isSafe ? '#ccc' : '#fca5a5' }}>{res.summary}</div>
+                                                                    </div>
+                                                                ))
+                                                            )}
+                                                        </div>
                                                     )}
-                                                    <span style={{
-                                                        fontSize: 10, flexShrink: 0,
-                                                        padding: '1px 6px', borderRadius: 3,
-                                                        background: style.bg, color: style.color,
-                                                    }}>{issue.type}</span>
                                                 </div>
                                             );
                                         })
@@ -285,6 +341,20 @@ export default function AIProblemsPanel({
                             )
                         )}
                     </div>
+
+                    {/* Mirror Debugger Overlay */}
+                    {mirrorSubject && (
+                        <div style={{
+                            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                            zIndex: 9000
+                        }}>
+                            <MirrorDebugger
+                                codeSnippet={mirrorSubject.code}
+                                errorMessage={mirrorSubject.error}
+                                onClose={() => setMirrorSubject(null)}
+                            />
+                        </div>
+                    )}
                 </div>
             )}
         </>

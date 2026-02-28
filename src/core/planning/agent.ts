@@ -123,7 +123,7 @@ export class PlanningAgent {
     
     try {
     // Use AI to break down the task
-    const { callAI } = await import('../../services/aiProvider');
+    const { callAI } = await import('../../services/ai');
     
     const prompt = `Görevi adım adım plana dönüştür. Her adım kısa ve net olmalı.
 
@@ -288,7 +288,7 @@ Sadece JSON döndür, başka açıklama yapma.`;
     performanceMonitor.start(`planning-step-${step.id}`);
     
     try {
-      const { callAI } = await import('../../services/aiProvider');
+      const { callAI } = await import('../../services/ai');
       
       const prompt = `Görev: ${task}
 Adım: ${step.description}

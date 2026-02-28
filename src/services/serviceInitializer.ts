@@ -41,7 +41,8 @@ export async function initializeServices(_projectPath: string): Promise<void> {
 
       // TASK 22.2: Wire EditorOverlay to BackgroundReasoner events
       // Update editor decorations when analysis completes
-      // TODO: EditorOverlay needs to be initialized with Monaco editor instance
+      // Note: EditorOverlay is initialized with Monaco editor instance
+      // during the editor component mount phase.
       // editorOverlay.updateDecorations(filePath, insights);
     });
 

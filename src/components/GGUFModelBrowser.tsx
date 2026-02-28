@@ -4,6 +4,9 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { showToast } from './ToastContainer';
 import ModelComparison from './ModelComparison';
+import HuggingFaceSearch from './GGUFModelBrowser/HuggingFaceSearch';
+import LocalModelList from './GGUFModelBrowser/LocalModelList';
+import DownloadManager from './GGUFModelBrowser/DownloadManager';
 
 interface GGUFModel {
   id: string;
@@ -311,7 +314,7 @@ export default function GGUFModelBrowser({ onModelSelect }: GGUFModelBrowserProp
     // 🆕 GPU'da aktif model kontrolü
     const checkActiveGpuModel = async () => {
       try {
-        const { getGgufModelStatus } = await import('../services/ggufProvider');
+        const { getGgufModelStatus } = await import('../services/ai');
         const status = await getGgufModelStatus();
         if (status.loaded && status.loaded_models && status.loaded_models.length > 0) {
           // İlk modeli varsayılan aktif olarak göster
@@ -364,7 +367,7 @@ export default function GGUFModelBrowser({ onModelSelect }: GGUFModelBrowserProp
     // 🆕 GPU memory bilgisini periyodik olarak güncelle
     const updateGpuMemory = async () => {
       try {
-        const { getGpuMemoryInfo } = await import('../services/ggufProvider');
+        const { getGpuMemoryInfo } = await import('../services/ai');
         const info = await getGpuMemoryInfo();
         setGpuMemory(info);
       } catch (error) {
@@ -788,7 +791,7 @@ export default function GGUFModelBrowser({ onModelSelect }: GGUFModelBrowserProp
       console.log('🔄 Context Length (INPUT):', modelContextLength);
       console.log('🔄 Max Tokens (OUTPUT):', maxOutputTokens);
       console.log('🔬 Sampling Params:', { temperature, topP, topK, repeatPenalty, minP });
-      const { loadGgufModel } = await import('../services/ggufProvider');
+      const { loadGgufModel } = await import('../services/ai');
 
       // Model yükleme işlemi
       await loadGgufModel({
@@ -1211,8 +1214,8 @@ export default function GGUFModelBrowser({ onModelSelect }: GGUFModelBrowserProp
     try {
       console.log('🔄 Model(ler) GPU\'dan kaldırılıyor...');
 
-      const { unloadGgufModel } = await import('../services/ggufProvider');
-      await unloadGgufModel(); // TODO: Backend'de spesifik model unload eklenebilir, şimdilik hepsi
+      const { unloadGgufModel } = await import('../services/ai');
+      await unloadGgufModel(); // Şimdilik tüm modelleri unload ediyoruz
 
       // localStorage'dan aktif model config'ini temizle
       if (!modelPath) {
@@ -1426,32 +1429,11 @@ export default function GGUFModelBrowser({ onModelSelect }: GGUFModelBrowserProp
                 })()}
 
                 {/* İndirme Kuyruğu */}
-                {downloadQueue.length > 0 && (
-                  <div className="flex-shrink-0 w-48 p-1.5 bg-orange-900/20 border border-orange-500/30 rounded">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-xs font-semibold text-orange-400">📥 Kuyruk ({downloadQueue.length})</span>
-                      <button
-                        onClick={processDownloadQueue}
-                        className="px-1 py-0.5 bg-orange-600 hover:bg-orange-700 rounded text-xs"
-                      >
-                        ▶️
-                      </button>
-                    </div>
-                    <div className="space-y-0.5 max-h-16 overflow-y-auto">
-                      {downloadQueue.slice(0, 2).map((model, index) => (
-                        <div key={model.id} className="flex items-center justify-between text-xs">
-                          <span className="text-gray-300 truncate">#{index + 1} {model.displayName}</span>
-                          <button
-                            onClick={() => setDownloadQueue(prev => prev.filter(m => m.id !== model.id))}
-                            className="text-red-400 hover:text-red-300 ml-1"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <DownloadManager
+                  downloadQueue={downloadQueue}
+                  setDownloadQueue={setDownloadQueue}
+                  processDownloadQueue={processDownloadQueue}
+                />
               </div>
             </div>
           </>
@@ -1466,171 +1448,21 @@ export default function GGUFModelBrowser({ onModelSelect }: GGUFModelBrowserProp
           </div>
         )}
 
-        <div className="space-y-2 max-h-96 overflow-y-auto">
-          {filteredModels.length === 0 && (
-            <div className="text-center py-8 text-gray-400 text-sm">
-              <p className="mb-2">📦 Henüz model eklenmemiş</p>
-              <p className="text-xs">Yukarıdaki "📄 Dosya Ekle" butonuna tıklayarak GGUF model ekleyin</p>
-              <p className="text-xs mt-1">veya 🤗 Hugging Face'den model arayın</p>
-            </div>
-          )}
-
-          {filteredModels.map(model => {
-            const requirements = calculateRequirements(model, contextLength);
-            const quantInfo = QUANT_INFO[model.quantization];
-
-            return (
-              <div key={model.id} className={`p-2 rounded border text-xs ${model.isDownloaded ? 'border-green-500 bg-green-900/10' : 'border-gray-600 bg-gray-800/50'} hover:border-blue-500 transition-colors`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1 mb-0.5">
-                      {/* 🆕 Favori Yıldızı */}
-                      <button
-                        onClick={() => toggleFavorite(model.id)}
-                        className={`text-sm ${model.isFavorite ? 'text-yellow-400' : 'text-gray-600 hover:text-yellow-400'} transition-colors`}
-                        title={model.isFavorite ? 'Favorilerden çıkar' : 'Favorilere ekle'}
-                      >
-                        {model.isFavorite ? '⭐' : '☆'}
-                      </button>
-                      <h4 className="font-semibold text-white truncate">{model.displayName}</h4>
-                      {model.isDownloaded && <span className="text-green-400 text-xs">✓</span>}
-                      {activeGpuModel === model.localPath && <span className="text-blue-400 text-xs animate-pulse" title="GPU'da aktif">🎮</span>}
-                      {/* 🆕 Kullanım Sayısı */}
-                      {model.usageCount && model.usageCount > 0 && (
-                        <span className="text-xs text-gray-500" title={`${model.usageCount} kez kullanıldı`}>
-                          ({model.usageCount}×)
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-gray-400 text-xs mb-1 truncate">{model.description}</p>
-                    <div className="flex flex-wrap gap-1 text-xs">
-                      {model.size !== 'Bilinmiyor' && <span className="px-1.5 py-0.5 bg-gray-700 rounded">{model.size}</span>}
-                      <span className="px-1.5 py-0.5 bg-blue-700 rounded">{model.quantization}</span>
-                      {model.parameters && <span className="px-1.5 py-0.5 bg-purple-700 rounded">{model.parameters}</span>}
-                      {/* 🆕 Son Kullanım */}
-                      {model.lastUsed && (
-                        <span className="px-1.5 py-0.5 bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-textSecondary)]" title="Son kullanım">
-                          🕐 {new Date(model.lastUsed).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* İndirme Progress Bar */}
-                    {model.isDownloading && (
-                      <div className="mt-2 space-y-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-blue-400">⬇️ İndiriliyor...</span>
-                          <span className="text-white font-semibold">
-                            {model.downloadProgress?.toFixed(1) || 0}%
-                          </span>
-                        </div>
-                        <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden">
-                          <div
-                            className="bg-blue-500 h-full transition-all duration-300 ease-out"
-                            style={{ width: `${model.downloadProgress || 0}%` }}
-                          />
-                        </div>
-                        <div className="flex items-center justify-between text-xs text-gray-400">
-                          <span>
-                            {((model.downloadedBytes || 0) / (1024 ** 3)).toFixed(2)} GB / {model.size}
-                          </span>
-                          <span>
-                            {(() => {
-                              if (!model.downloadProgress || model.downloadProgress === 0) {
-                                return 'Başlatılıyor...';
-                              }
-                              if (model.downloadProgress >= 100) {
-                                return 'Tamamlandı!';
-                              }
-
-                              // Gerçek indirme hızını hesapla
-                              const elapsedSeconds = (Date.now() - (model.downloadStartTime || Date.now())) / 1000;
-                              const downloadedBytes = model.downloadedBytes || 0;
-                              const totalBytes = model.sizeBytes;
-                              const remainingBytes = totalBytes - downloadedBytes;
-
-                              if (elapsedSeconds < 2) {
-                                return 'Hesaplanıyor...';
-                              }
-
-                              const bytesPerSecond = downloadedBytes / elapsedSeconds;
-                              const speedMBps = (bytesPerSecond / (1024 * 1024)).toFixed(1);
-                              const remainingSeconds = Math.ceil(remainingBytes / bytesPerSecond);
-
-                              let timeStr = '';
-                              if (remainingSeconds < 60) {
-                                timeStr = `${remainingSeconds} sn`;
-                              } else if (remainingSeconds < 3600) {
-                                timeStr = `${Math.ceil(remainingSeconds / 60)} dk`;
-                              } else {
-                                timeStr = `${(remainingSeconds / 3600).toFixed(1)} saat`;
-                              }
-
-                              return `${speedMBps} MB/s • ~${timeStr}`;
-                            })()}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {showRequirements === model.id && model.sizeBytes > 0 && (
-                      <div className="mt-2 p-2 bg-gray-900 rounded text-xs space-y-1">
-                        <div className="flex justify-between"><span>💾 Min RAM:</span><span className="font-semibold">{requirements.minRAM} GB</span></div>
-                        <div className="flex justify-between"><span>🎮 Min VRAM:</span><span className="font-semibold">{requirements.minVRAM} GB</span></div>
-                        <div className="flex justify-between"><span>💾 Önerilen RAM:</span><span className="font-semibold text-green-400">{requirements.recommendedRAM} GB</span></div>
-                        <div className="flex justify-between"><span>🎮 Önerilen VRAM:</span><span className="font-semibold text-green-400">{requirements.recommendedVRAM} GB</span></div>
-                        {quantInfo && <div className="pt-1 border-t border-gray-700"><span className="text-gray-400">{quantInfo.quality}</span></div>}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    {model.sizeBytes > 0 && (
-                      <button onClick={() => setShowRequirements(showRequirements === model.id ? null : model.id)} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs whitespace-nowrap" title="Sistem gereksinimleri">ℹ️</button>
-                    )}
-                    {model.isDownloaded && (
-                      <>
-                        <button onClick={() => handleModelSelect(model)} className="px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-xs whitespace-nowrap" title="Ayarla ve Kullan">⚙️</button>
-                        <button
-                          onClick={() => runBenchmark(model)}
-                          disabled={isBenchmarking}
-                          className={`px-2 py-1 rounded text-xs whitespace-nowrap ${isBenchmarking
-                            ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                            : 'bg-yellow-600 hover:bg-yellow-700 text-[var(--color-text)]'
-                            }`}
-                          title="Hız testi yap"
-                        >
-                          {isBenchmarking ? '⏳' : '⚡'}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelectedModelForConfig(model);
-                            readModelMetadata(model.localPath!);
-                          }}
-                          className="px-2 py-1 bg-cyan-600 hover:bg-cyan-700 rounded text-xs whitespace-nowrap"
-                          title="Metadata oku"
-                        >
-                          📊
-                        </button>
-                      </>
-                    )}
-                    {!model.isDownloaded && !model.isDownloading && (
-                      <button
-                        onClick={() => addToDownloadQueue(model)}
-                        className="px-2 py-1 bg-orange-600 hover:bg-orange-700 rounded text-xs whitespace-nowrap"
-                        title="Kuyruğa ekle"
-                      >
-                        📥
-                      </button>
-                    )}
-                    <button onClick={() => deleteModel(model.id)} className="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-xs whitespace-nowrap" title="Listeden Kaldır">🗑️</button>
-                    {model.huggingFaceUrl && <a href={model.huggingFaceUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-purple-700 hover:bg-purple-600 rounded text-xs text-center" title="Hugging Face'de aç">🤗</a>}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <LocalModelList
+          filteredModels={filteredModels}
+          activeGpuModel={activeGpuModel}
+          contextLength={contextLength}
+          showRequirements={showRequirements}
+          setShowRequirements={setShowRequirements}
+          isBenchmarking={isBenchmarking}
+          deleteModel={deleteModel}
+          handleModelSelect={handleModelSelect}
+          runBenchmark={runBenchmark}
+          setSelectedModelForConfig={setSelectedModelForConfig}
+          readModelMetadata={readModelMetadata}
+          addToDownloadQueue={addToDownloadQueue}
+          toggleFavorite={toggleFavorite}
+        />
       </div>
 
       {/* Sağ Panel - Model Ayarları */}
@@ -2432,97 +2264,17 @@ export default function GGUFModelBrowser({ onModelSelect }: GGUFModelBrowserProp
       )}
 
       {/* 🆕 Hugging Face Arama Modal */}
-      {showSearchModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowSearchModal(false)}>
-          <div className="bg-gray-800 rounded-lg p-4 max-w-3xl w-full max-h-[80vh] overflow-y-auto m-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-[var(--color-text)]">🤗 Hugging Face Model Ara</h3>
-              <button onClick={() => setShowSearchModal(false)} className="text-gray-400 hover:text-[var(--color-text)] text-xl">✕</button>
-            </div>
-
-            <div className="mb-3">
-              <input
-                type="text"
-                placeholder="Model ara... (örn: tinyllama, qwen, phi, llama)"
-                value={hfSearchQuery}
-                onChange={(e) => setHfSearchQuery(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-[var(--color-text)] placeholder-gray-400 focus:border-blue-500 focus:outline-none"
-                autoFocus
-              />
-              {isSearching && <div className="mt-2 text-sm text-gray-400">🔄 Aranıyor...</div>}
-            </div>
-
-            {hfSearchResults.length > 0 ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-semibold text-[var(--color-text)]">📋 {hfSearchResults.length} sonuç bulundu</span>
-                  <button onClick={() => setHfSearchResults([])} className="text-xs text-gray-400 hover:text-[var(--color-text)]">Temizle</button>
-                </div>
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {hfSearchResults.map(model => (
-                    <div key={model.id} className="bg-[var(--color-surface)] border border-[var(--color-border)] p-4 rounded-xl shadow-sm hover:shadow-md transition-all">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <h5 className="font-semibold text-[var(--color-text)] text-sm mb-1">{model.displayName}</h5>
-                          <p className="text-gray-400 text-xs mb-2">{model.description}</p>
-                          <div className="flex flex-wrap gap-1">
-                            <span className="px-2 py-0.5 bg-gray-700 rounded text-xs">{model.size}</span>
-                            <span className="px-2 py-0.5 bg-blue-700 rounded text-xs">{model.quantization}</span>
-                            {model.parameters && <span className="px-2 py-0.5 bg-purple-700 rounded text-xs">{model.parameters}</span>}
-                            {model.downloads && <span className="px-2 py-0.5 bg-green-700 rounded text-xs">⬇️ {(model.downloads / 1000).toFixed(0)}K</span>}
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <button
-                            onClick={() => {
-                              addModelFromSearch(model);
-                              setShowSearchModal(false);
-                            }}
-                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs whitespace-nowrap"
-                          >
-                            + Ekle ve İndir
-                          </button>
-                          <button
-                            onClick={() => addToDownloadQueue(model)}
-                            className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 rounded text-xs whitespace-nowrap"
-                          >
-                            📥 Kuyruğa Ekle
-                          </button>
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              try {
-                                const { openUrl } = await import('@tauri-apps/plugin-opener');
-                                await openUrl(model.huggingFaceUrl);
-                              } catch (error) {
-                                console.error('URL açma hatası:', error);
-                                alert('Tarayıcı açılamadı: ' + error);
-                              }
-                            }}
-                            className="px-3 py-1.5 bg-purple-700 hover:bg-purple-600 rounded text-xs whitespace-nowrap cursor-pointer"
-                          >
-                            🤗 Sayfasını Aç
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : hfSearchQuery.length > 0 && !isSearching ? (
-              <div className="text-center py-8 text-gray-400">
-                <p className="mb-2">🔍 Sonuç bulunamadı</p>
-                <p className="text-xs">Farklı anahtar kelimeler deneyin</p>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-gray-400">
-                <p className="mb-2">🤗 Hugging Face'de model arayın</p>
-                <p className="text-xs">Popüler modeller: tinyllama, qwen, phi, llama, mistral</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <HuggingFaceSearch
+        isVisible={showSearchModal}
+        onClose={() => setShowSearchModal(false)}
+        searchQuery={hfSearchQuery}
+        setSearchQuery={setHfSearchQuery}
+        isSearching={isSearching}
+        searchResults={hfSearchResults}
+        setSearchResults={setHfSearchResults}
+        addModelFromSearch={addModelFromSearch}
+        addToDownloadQueue={addToDownloadQueue}
+      />
 
       {/* 🆕 Gelişmiş Filtre Modal */}
       {showFilterModal && (

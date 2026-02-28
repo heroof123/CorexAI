@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { compareModels } from '../services/ai';
-import { loadAIProviders, AIModel } from '../services/aiProvider';
+import { loadAIProviders, AIModel } from '../services/ai';
 import { Message } from '../types';
 
 interface ModelComparisonProps {
