@@ -232,7 +232,7 @@ impl VectorDB {
             // Escape single quotes in path for SQL
             let safe_filter = filter.replace('\'', "''").replace('\\', "/");
             // LanceDB supports SQL-like filters. We want files that start with the project path.
-            query = query.only_if(format!("file_path LIKE '{}%'", safe_filter))?;
+            query = query.only_if(format!("file_path LIKE '{}%'", safe_filter));
         }
 
         let mut stream = query.limit(top_k).execute().await?;

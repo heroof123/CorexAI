@@ -120,7 +120,7 @@ impl RAGPipeline {
 
         // Generate embedding using the VectorDB's internal fastembed model
         let query_embedding = vector_db.generate_embedding(query).await?;
-        let chunks = vector_db.query(query_embedding, top_k).await.unwrap_or_default();
+        let chunks = vector_db.query(query_embedding, top_k, None).await.unwrap_or_default();
 
         if !chunks.is_empty() {
             context.push_str("=== İLGİLİ KOD PARÇALARI (Vector DB) ===\n\n");

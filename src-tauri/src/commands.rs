@@ -1184,7 +1184,7 @@ pub async fn vector_search(query: String, top_k: u32, endpoint: Option<String>) 
         .ok_or("Vector DB başlatılmamış. Önce init_vector_db çağırın.")?;
     
     // Search
-    let results = db.query(query_embedding, top_k as usize)
+    let results = db.query(query_embedding, top_k as usize, None)
         .await
         .map_err(|e| format!("Vector search hatası: {}", e))?;
     
